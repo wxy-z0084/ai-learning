@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>路由、请求与响应模型（Pydantic） · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块二 · FastAPI / <strong>路由、请求与响应模型（Pydantic）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>路由、请求与响应模型（Pydantic）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块二 · FastAPI</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够用 <strong>FastAPI</strong> 的路径参数、查询参数、请求体三类入参定义路由，说清各自该用什么类型标注。</li>
+      <li>能够用 <strong>Pydantic v2</strong> 定义带校验规则的请求/响应模型，并解释校验失败时框架返回 422 的机制。</li>
+      <li>能够用 <strong>response_model</strong> 控制出参字段、脱敏与嵌套序列化，选择合适的状态码。</li>
+      <li>能够用 <strong>HTTPException</strong> 与自定义异常处理器给出规范的错误响应结构。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：路由与三类请求参数</h3>
+    <p>一个 FastAPI 应用由若干<strong>路由</strong>组成：@app.get("/items/{id}") 这类装饰器把「HTTP 方法 + URL 模板」绑定到处理函数，路径中的 <strong>{id}</strong> 是<strong>路径参数</strong>，类型标注 int 会自动转换并校验。路径参数之外的入参，FastAPI 按声明位置自动分流：<strong>查询参数</strong>（URL 中 ?key=value，标量类型如 str/int/bool，默认值即为可选）出现在函数参数列表但未标注为模型；<strong>请求体</strong>参数标注为 Pydantic 模型类，框架解析 JSON 并校验。同名参数可用 <strong>Query(...)</strong>、<strong>Path(...)</strong> 补充描述、别名、范围约束，这些会直接显示进接口文档。</p>
+    <p>设计约定：<strong>URL 用名词、HTTP 动词表达操作</strong>——GET 查询、POST 创建、PUT/PATCH 更新、DELETE 删除；GET 应无副作用且可缓存，POST 用于有副作用的写操作。路由顺序也重要：更具体的路径（/users/me）要注册在通配路径（/users/{id}）之前。</p>
+
+    <h3>知识点 2：Pydantic v2 模型与校验</h3>
+    <p><strong>Pydantic</strong> 是基于 Python 类型标注的数据校验库，FastAPI 用它同时承担「入参解析」与「出参序列化」。定义一个 <strong>BaseModel</strong> 子类、声明字段类型即得：请求里缺字段、类型不对、超出约束都会产生结构化的 <strong>422 校验错误</strong>，业务代码拿到的一定是合法对象，不必再手写 if 判断。常用增强：<strong>Field(min_length=1, max_length=200, description="...")</strong> 加约束与文档；<strong>str | None = None</strong> 表示可选字段；<strong>model_config = ConfigDict(extra="forbid")</strong> 拒绝未知字段（防拼写错误与参数注入），或用 extra="ignore" 忽略；<strong>@field_validator</strong> 写跨字段/格式自定义校验（如密码确认一致性、URL 前缀检查）。</p>
+    <p>常见坑：可变默认值与 None 的处理——可选字段写 <strong>x: str | None = None</strong>，不要漏默认值导致必填；字段名与 Python 关键字冲突时用 <strong>alias</strong>（如 model_config populate_by_name=True）。</p>
+
+    <h3>知识点 3：响应模型与状态码</h3>
+    <p><strong>response_model</strong> 决定出参结构：即便内部对象有 10 个字段，声明为只含 3 个字段的响应模型即可<strong>过滤多余字段</strong>（比如绝不把 password_hash 吐给前端），还能做类型转换与嵌套裁剪。返回值会被自动序列化成 JSON。状态码：<strong>200</strong> 成功（默认）、<strong>201</strong> 资源创建成功、<strong>204</strong> 无内容、<strong>400</strong> 请求有误、<strong>401/403</strong> 未认证/无权限、<strong>404</strong> 资源不存在、<strong>409</strong> 冲突（重复创建）、<strong>422</strong> 校验失败（FastAPI 自动生成）、<strong>500</strong> 服务端异常。用 <strong>Response(status_code=201)</strong> 或装饰器的 status_code 参数设置。</p>
+
+    <h3>知识点 4：错误处理</h3>
+    <p>业务错误用 <strong>raise HTTPException(status_code=404, detail="用户不存在")</strong>，detail 会成为响应体的 detail 字段。要统一全站错误结构（如 {code, message, data}），用 <strong>@app.exception_handler</strong> 注册自定义处理器，或继承 RequestValidationError 批量改写 422 的格式。原则：<strong>detail 面向开发者、可具体；对外信息面向用户、不泄露内部实现</strong>（不要把堆栈、SQL 返回给调用方）。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：完整的小型用户 API，覆盖路径参数、查询参数、请求体、状态码与响应模型：</p>
+<pre><code>from fastapi import FastAPI, HTTPException, Query, Response
+from pydantic import BaseModel, Field, ConfigDict
+
+app = FastAPI(title="用户服务")
+
+class UserCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=50, description="用户名")
+    email: str = Field(pattern=r"^[\w.+-]+@[\w-]+\.[\w.]+$")
+    password: str = Field(min_length=8)
+
+class UserOut(BaseModel):
+    id: int
+    name: str
+    email: str
+    model_config = ConfigDict(from_attributes=True)  # 允许从 ORM 对象读取
+
+FAKE_DB = {1: {"id": 1, "name": "alice", "email": "a@x.com",
+               "password_hash": "secret-hash"}}
+
+@app.get("/users", response_model=list[UserOut])
+def list_users(limit: int = Query(10, ge=1, le=100), offset: int = 0):
+    """查询参数：limit 必须在 1..100，否则 422"""
+    rows = list(FAKE_DB.values())[offset: offset + limit]
+    return [UserOut(**{k: v for k, v in r.items() if k != "password_hash"})
+            for r in rows]
+
+@app.get("/users/{user_id}", response_model=UserOut)
+def get_user(user_id: int):
+    if user_id not in FAKE_DB:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return FAKE_DB[user_id]
+
+@app.post("/users", response_model=UserOut, status_code=201)
+def create_user(payload: UserCreate, response: Response):
+    if any(u["email"] == payload.email for u in FAKE_DB.values()):
+        raise HTTPException(status_code=409, detail="邮箱已被注册")
+    new_id = max(FAKE_DB) + 1
+    FAKE_DB[new_id] = {"id": new_id, "name": payload.name,
+                       "email": payload.email,
+                       "password_hash": "hashed:" + payload.password}
+    response.headers["Location"] = f"/users/{new_id}"
+    return FAKE_DB[new_id]
+</code></pre>
+    <p>示例二：自定义校验与统一错误结构，让 422 与业务错误返回同一种格式：</p>
+<pre><code>from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, field_validator
+
+app = FastAPI()
+
+class QueryReq(BaseModel):
+    question: str
+    top_k: int = 5
+
+    @field_validator("top_k")
+    @classmethod
+    def top_k_range(cls, v: int) -&gt; int:
+        if not 1 &lt;= v &lt;= 50:
+            raise ValueError("top_k 必须在 1~50 之间")
+        return v
+
+@app.exception_handler(RequestValidationError)
+async def validation_handler(request: Request,
+                             exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={"code": 422, "message": "参数校验失败",
+                 "errors": exc.errors()},
+    )
+
+@app.post("/search")
+def search(req: QueryReq):
+    return {"code": 0, "data": {"question": req.question,
+                                "top_k": req.top_k}}
+</code></pre>
+    <div class="tip">💡 提示：开发时访问 <strong>/docs</strong>（Swagger UI）或 <strong>/redoc</strong> 可以看到自动生成的接口文档——字段描述、约束、示例都来自你的类型标注与 Field，写好模型即写好文档。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：用 uvicorn 起一个 FastAPI 应用，实现 /health（GET）与 /notes、/notes/{id}（GET/POST），在 /docs 中验证三种参数（路径、查询、请求体）的填写与发送。</li>
+      <li><strong>任务 2</strong>：为「创建笔记」定义 Pydantic 请求模型：标题必填且 1~100 字、正文可选、tags 为字符串列表且去重（用 field_validator 实现），故意传非法数据观察 422 报错结构。</li>
+      <li><strong>任务 3</strong>：设计响应模型隐藏内部字段（如 author_password_hash、internal_score），验证无论内部对象返回多少字段，出参都只含白名单字段。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：注册自定义异常处理器，让 404、422、500 三种错误都返回 {code, message, data} 统一结构，并在自检时用 curl 分别触发它们。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/" target="_blank">FastAPI 官方文档（中文）</a> — <span class="desc">从「第一个步骤」到「请求体」「查询参数」的交互式教程，每节自带可运行代码。</span></li>
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/tutorial/body/" target="_blank">FastAPI：请求体与 Pydantic</a> — <span class="desc">请求模型的嵌套、默认值与校验细节，写 POST 接口时对照使用。</span></li>
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/tutorial/response-model/" target="_blank">FastAPI：response_model 与状态码</a> — <span class="desc">字段过滤、序列化顺序与 status_code 参数的官方说明。</span></li>
+      <li>📖 <a href="https://docs.pydantic.dev" target="_blank">Pydantic 官方文档</a> — <span class="desc">Field、validator、model_config 的完整参考，v2 迁移差异也在这里。</span></li>
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/tutorial/handling-errors/" target="_blank">FastAPI：错误处理</a> — <span class="desc">HTTPException、自定义异常处理器与 422 改写的标准写法。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能不查资料定义一个同时带路径参数、查询参数和请求体的路由吗？</li>
+      <li>我能解释 422 是谁产生的、在什么时机产生，以及如何改写它的响应结构吗？</li>
+      <li>我知道 response_model 过滤字段与「直接 return 字典」的区别，并会用它做字段脱敏吗？</li>
+      <li>我能为创建、查询、冲突、不存在四类场景各选对一个 HTTP 状态码吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m1-5.html">← 上一节：数据库操作（SQL / ORM）</a>
+    <a href="s2-m2-2.html">下一节：依赖注入与中间件 →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>检索策略（混合检索、重排序） · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块三 · RAG（检索增强生成）/ <strong>检索策略（混合检索、重排序）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>检索策略（混合检索、重排序）</h1>
+    <div class="meta"><span class="time-chip">预计 1.5 天</span>模块三 · RAG（检索增强生成）</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够画出"粗召回 → 融合 → 重排序 → 截断"的完整检索流水线，并说明每一环解决什么问题。</li>
+      <li>能够实现 <strong>BM25 稀疏检索 + 向量稠密检索</strong>的混合召回，并解释为什么混合优于单一方式。</li>
+      <li>能够接入交叉编码器（Cross-Encoder）重排序，把最相关的片段推到上下文最前面。</li>
+      <li>能够用 Hit Rate、MRR 等指标量化检索效果，用数据而不是感觉来调优检索策略。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：稠密检索与稀疏检索各有所长</h3>
+    <p><strong>稠密检索（Dense Retrieval）</strong>基于嵌入向量，理解语义，"怎么改密码"能召回"重置口令指南"，但对专有名词不敏感——查询里出现的产品型号"XR-500B"如果训练语料中罕见，向量区分度会变差。<strong>稀疏检索（Sparse Retrieval）</strong>的代表是 <strong>BM25</strong>：基于词频统计，只匹配字面词汇，不懂同义改写，但对<strong>型号、编号、人名、报错码</strong>这类精确词极其敏感。</p>
+    <p>企业知识库里两类查询都大量存在，所以生产级 RAG 几乎都采用<strong>混合检索（Hybrid Search）</strong>：两路各自召回 Top-K，再用 <strong>RRF（Reciprocal Rank Fusion，倒数排名融合）</strong>合并——每条文档按"它在各路结果中的排名"累加 1/(k+rank) 得分，优点是<strong>无需归一化两路的分数</strong>即可融合，实现简单且稳健。权重上可让向量路稍高（如 0.6 : 0.4）。</p>
+
+    <h3>知识点 2：重排序（Rerank）——便宜且立竿见影的提质手段</h3>
+    <p>混合召回只是"多路撒网"，召回的 20 条里仍可能有噪声。重排序用<strong>交叉编码器（Cross-Encoder）</strong>：把"查询+每个候选片段"拼在一起输入模型，逐对精算相关性分数——它能做查询与文档的深度交互，精度远高于双塔式的向量相似度。典型模型有 bge-reranker-v2-m3、Cohere Rerank、Jina Reranker。</p>
+    <p>标准做法：<strong>宽召回 + 重排截断</strong>。先召回 20～50 条保证不漏（recall 高），再用重排模型打分、只取 Top-3～5 进入大模型上下文（precision 高）。这样既控制了上下文噪声，又控制了 token 成本。为了速度可以用 Flashrank 这类轻量推理库在 CPU 上跑；为了极致效果上 bge-reranker 并用 ONNX/GPU 加速。<strong>重排序是投入产出比最高的 RAG 优化项，建议默认开启。</strong></p>
+
+    <h3>知识点 3：查询侧优化——改写、多路提问与 HyDE</h3>
+    <p>用户的问题往往"不像"文档的写法（口语化、信息不全）。常用手段：① <strong>查询改写</strong>——先让大模型把口语问题改写成检索友好的关键词句；② <strong>多查询扩展（Multi-Query）</strong>——生成 3 个不同角度的改写分别检索再融合，提升召回稳定性；③ <strong>HyDE</strong>——先让模型"假装回答"写出一段假答案，用假答案的向量去检索（答案与文档的语义距离通常比问题更近）；④ <strong>元数据过滤</strong>——先按时间、部门、文档类型缩小范围再做语义检索，既提速又提准。</p>
+
+    <h3>知识点 4：用指标衡量检索质量</h3>
+    <p>先准备 20～50 条"问题 → 应命中文档"的评测集。核心指标：<strong>Hit Rate@K</strong>（Top-K 内是否出现正确文档，K=3 或 5）、<strong>MRR</strong>（正确文档排名越靠前得分越高）、<strong>NDCG</strong>（考虑多相关文档的排序质量）。调优顺序建议：先修数据（切分与元数据）→ 再上混合检索 → 再加重排 → 最后调查询改写。<strong>没有评测集的调优都是玄学，每改一处都要跑一遍指标对比。</strong></p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：BM25 + 向量混合检索（RRF 融合）+ Flashrank 重排序，完整的检索流水线：</p>
+<pre><code># pip install langchain langchain-community langchain-openai langchain-chroma flashrank
+from langchain_community.retrievers import BM25Retriever
+from langchain.retrievers import EnsembleRetriever
+from langchain_community.document_compressors import FlashrankRerank
+from langchain_chroma import Chroma
+from langchain_openai import OpenAIEmbeddings
+
+docs = [...]   # 上一节切分好的 chunk 列表（每个含 page_content 与 metadata）
+
+# 1) 稠密召回：向量库 Top-10
+store = Chroma.from_documents(docs, OpenAIEmbeddings(model="text-embedding-3-small"))
+dense_ret = store.as_retriever(search_kwargs={"k": 10})
+
+# 2) 稀疏召回：BM25 Top-10（分词器按空白切分，中文需替换为 jieba 等分词）
+bm25_ret = BM25Retriever.from_documents(docs, k=10)
+bm25_ret.preprocess_func = lambda q: q.lower().split()
+
+# 3) RRF 融合两路结果
+ensemble_ret = EnsembleRetriever(retrievers=[bm25_ret, dense_ret], weights=[0.4, 0.6])
+
+# 4) 重排序：交叉编码器精排，取 Top-3
+reranker = FlashrankRerank(top_n=3)
+query = "XR-500B 设备连接失败如何排查？"
+candidates = ensemble_ret.invoke(query)
+final_docs = reranker.compress_documents(candidates, query)
+
+for d in final_docs:
+    print(round(d.metadata.get("relevance_score", 0), 3), "|", d.page_content[:60])</code></pre>
+
+    <p>示例二：一个最小的 Hit Rate@3 评测函数，用数据驱动检索调优：</p>
+<pre><code>def hit_rate_at_k(eval_pairs, retriever, k=3):
+    """eval_pairs: [(问题, 正确文档的唯一标识), ...]，返回命中率"""
+    hits = 0
+    for question, gold_id in eval_pairs:
+        docs = retriever.invoke(question)[:k]
+        if any(d.metadata["doc_id"] == gold_id for d in docs):
+            hits += 1
+    return hits / len(eval_pairs)
+
+print("混合检索 Hit@3:", hit_rate_at_k(eval_pairs, ensemble_ret))
+print("纯向量  Hit@3:", hit_rate_at_k(eval_pairs, dense_ret))</code></pre>
+
+    <div class="tip">💡 提示：中文场景下 BM25 的默认空白分词几乎失效（整句算一个"词"），必须替换成分词器，例如 <code>bm25_ret.preprocess_func = lambda q: jieba.lcut(q)</code>，否则稀疏路形同虚设。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：基于上一节的向量库，接入 BM25 实现混合检索，用 10 个包含专有名词/型号的查询对比"纯向量 vs 混合"的 Hit Rate 差异。</li>
+      <li><strong>任务 2</strong>：接入 Flashrank 或 bge-reranker 做重排序，对比重排前后 Top-1 结果的相关性，记录人工评分变化。</li>
+      <li><strong>任务 3</strong>：构建 20 条评测集（问题 + 正确文档 id），实现 Hit Rate@3 与 MRR 两个指标脚本，分别测量：纯向量、混合、混合+重排 三种方案的得分并列表对比。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：在检索前加入"查询改写"环节（用大模型把口语问题改写成关键词句），测量改写对 Hit Rate 的影响，并思考改写失败时如何兜底。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://python.langchain.com/docs/modules/data_connection/retrieval/" target="_blank">LangChain Retrieval 官方文档</a> — <span class="desc">EnsembleRetriever、上下文压缩、多查询检索等检索进阶用法汇总。</span></li>
+      <li>📖 <a href="https://www.sbert.net/examples/applications/retrieve_rerank/README.html" target="_blank">Sentence-Transformers 检索与重排教程</a> — <span class="desc">交叉编码器重排序的原理与实践，Cross-Encoder 的权威教程。</span></li>
+      <li>🛠 <a href="https://github.com/Flashrank/Flashrank" target="_blank">Flashrank（GitHub）</a> — <span class="desc">零 GPU 依赖的轻量重排序库，几行代码即可给现有检索加上 rerank。</span></li>
+      <li>📖 <a href="https://github.com/dorianbrown/rank_bm25" target="_blank">rank_bm25（GitHub）</a> — <span class="desc">Python BM25 实现，LangChain BM25Retriever 的底层库，适合学习算法细节。</span></li>
+      <li>📖 <a href="https://arxiv.org/abs/2309.15217" target="_blank">Retrieval-Augmented Generation 论文集（arXiv）</a> — <span class="desc">RAG 领域综述与前沿方法，进阶时按需查阅。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清稠密检索与稀疏检索各自的强项与弱项吗？</li>
+      <li>我能独立实现"BM25 + 向量 + RRF + 重排序"的完整检索流水线吗？</li>
+      <li>我能解释重排序为什么比"直接加大召回 K 值"更有效吗？</li>
+      <li>我有一个可复跑的评测脚本，能用 Hit Rate/MRR 数字支撑我的每一次调优吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m3-3.html">← 上一节：向量数据库使用（Milvus / Chroma / FAISS）</a>
+    <a href="s2-m3-5.html">下一节：RAG 效果评估与优化 →</a>
+  </div>
+
+</div>
+</body>
+</html>

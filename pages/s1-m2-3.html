@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>思维链（CoT）与逐步推理 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块二 · 提示词工程 / <strong>思维链（CoT）与逐步推理</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>思维链（CoT）与逐步推理</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块二 · 提示词工程</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够解释思维链（Chain-of-Thought）为什么能提升复杂任务的准确率。</li>
+      <li>能够使用零样本 CoT（「让我们一步步思考」）与示例型 CoT 两种写法。</li>
+      <li>能够把「推理」与「最终答案」分离输出，便于程序化解析。</li>
+      <li>能够判断哪些任务不需要 CoT，避免为简单任务付出多余 token 成本。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：CoT 的原理——让模型「先打草稿再交卷」</h3>
+    <p>大模型逐 token 生成文本，每一步的可用算力大致恒定。让它<strong>直接输出答案</strong>，等于要求它一步完成「理解 → 棆算 → 校验 → 作答」；而让它<strong>先输出中间步骤</strong>，每一步推理结果都成为后续步骤的输入，复杂问题就被拆成了一串简单问题——这就是 <strong>思维链（Chain-of-Thought，CoT）</strong>。在数学应用题、逻辑推理、多条件筛选、代码推演等任务上，CoT 常带来显著提升；而在闲聊、翻译、摘要等「单步」任务上，CoT 几乎无收益、纯耗 token。</p>
+    <p>两种主流写法：<strong>零样本 CoT</strong>——在提示词末尾加一句「Let's think step by step / 让我们一步步思考」，零成本启动；<strong>示例型 CoT（CoT Few-shot）</strong>——在示例里不仅给「输入→输出」，还写出完整的推理过程，模型会模仿这种「先推理后作答」的模式。示例型 CoT 效果通常更强，但 token 成本高，适合零样本版本搞不定的硬任务。</p>
+
+    <h3>知识点 2：让推理过程可控、可解析</h3>
+    <p>放开让模型推理的副作用是<strong>废话变多、答案淹没在过程里</strong>，集成进系统时很难解析。解决办法是<strong>分离输出结构</strong>：在提示词里规定「先在 <code>## 推理</code> 段落写过程，最后单独一行输出 <code>## 答案</code>，答案必须是 XXX 格式」。再配合一个解析函数按标记切分，程序取答案段，人工看推理段，两不耽误。另一个工程化技巧是 <strong>自我一致性（Self-Consistency）</strong>：同一个问题让模型（或用更高温度）跑 3~5 次推理，各自独立作答，取<strong>多数票</strong>作为最终答案；成本换准确率，在对错误零容忍的场景（如合规判定）很划算。</p>
+    <p>还有两个重要变体值得了解：<strong>思维树（Tree of Thoughts，ToT）</strong>——每步生成多个候选思路、评估后择优扩展，适合需要探索与回溯的难题；<strong>React（Reason + Act）</strong>——推理与行动交替（想一步、调一次工具、再想），这正是扣子工作流里「大模型节点 → 插件节点 → 大模型节点」编排思想的提示词层对应物。</p>
+
+    <h3>知识点 3：常见坑与适用性判断</h3>
+    <p>坑一：<strong>模型「装模作样」推理</strong>——输出看起来步骤齐全，实际中间数字是编的。对策：让关键中间量显式落纸（「每一步都要写出计算式」），并在规则里要求「每步只做一件事」，编造在显式算式下更容易暴露；重要场景配合<strong>代码节点验证</strong>（模型给推理、程序算结果）。坑二：<strong>简单任务也强制 CoT</strong>，回答变得啰嗦且延迟上升。判断口诀：<em>需要多跳信息、多条件比较、算术、时序推断的任务用 CoT；单跳检索、风格改写、闲聊不用</em>。坑三：<strong>只说「一步步思考」却不限制长度</strong>，推理段跑出几百行；要同时给步数或字数上限（如「推理不超过 5 步」）。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：零样本 CoT + 输出分离，用于「多条件报销合规判定」。粘到任意大模型即用：</p>
+<pre><code># 角色
+你是公司财务审核员，判断一笔差旅报销是否超标。
+
+# 规则
+- 一线城市住宿上限 600 元/晚，其他城市 450 元/晚；
+- 单次出差餐补 100 元/天，超出部分自理；
+- 审核结论只能是：合规 / 超标（列出超支明细）/ 信息不足。
+
+# 输出格式
+## 推理
+（不超过 5 步，每步只做一件事，涉及金额必须写出算式）
+## 答案
+合规性：合规|超标|信息不足
+超支金额：xx 元（无则填 0）
+
+# 开始审核
+请先阅读以下报销单，再按格式作答：
+
+【报销单】上海出差 2 晚，住宿费 1380 元；出差 3 天，餐补申报 450 元；
+高铁票往返 1240 元。
+【回答】
+</code></pre>
+    <p>模型会输出类似「## 推理 / 第 1 步：上海属一线城市，住宿上限 600×2=1200 元，实际 1380 元，超 180 元……」的草稿，最后给出结构化答案。程序侧只需切出 <code>## 答案</code> 段即可入库。</p>
+    <p>示例二：示例型 CoT 的写法——在 Few-shot 示例里把推理过程一并演示，模型会模仿这种格式。片段示意：</p>
+<pre><code>【报销单】成都出差 1 晚，住宿费 420 元；出差 1 天，餐补 100 元。
+【推理】
+第 1 步：成都属其他城市，住宿上限 450 元/晚，实际 420 ≤ 450，未超标。
+第 2 步：餐补 100 元 = 规定标准 100 元/天，未超标。
+第 3 步：高铁票为交通费，规则未设上限，不计入超标判定。
+【答案】合规性：合规；超支金额：0 元
+</code></pre>
+    <div class="tip">💡 提示：如果业务上不允许大模型输出推理文本（涉及隐私或审计合规），可以用「先推理、后擦除」策略：让模型正常 CoT 作答，服务端只截取「答案」段回给用户，推理段仅留在日志里供排查——分离输出结构正是为这个工程需求服务的。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：找 5 道多步骤数学应用题，先让模型直接作答记录对错，再加「让我们一步步思考」重测，统计正确率变化。</li>
+      <li><strong>任务 2</strong>：给上面的报销审核提示词写 2 个示例型 CoT 示例（一个合规、一个超标），对比零样本版的答案格式稳定性。</li>
+      <li><strong>任务 3</strong>：写一个 20 行内的 Python 解析函数，从模型输出中切出「## 答案」段并解析为字典，用 3 条不同输出验证健壮性。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：对同一道难题用不同温度跑 5 次，实现多数票自我一致性，比较单次与多数票的正确率。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://arxiv.org/abs/2201.11903" target="_blank">Chain-of-Thought Prompting 论文</a> — <span class="desc">CoT 的原始论文，理解其机制与规模效应的权威来源。</span></li>
+      <li>📖 <a href="https://platform.openai.com/docs/guides/prompt-engineering" target="_blank">OpenAI 提示词工程指南</a> — <span class="desc">「Split complex tasks」等与 CoT 同源的官方建议。</span></li>
+      <li>📖 <a href="https://www.promptingguide.ai/zh" target="_blank">promptingguide.ai 中文版</a> — <span class="desc">CoT、自我一致性、思维树等方法的中文讲解与示例。</span></li>
+      <li>📖 <a href="https://www.coze.cn/docs" target="_blank">扣子官方文档</a> — <span class="desc">把推理型提示词放进工作流大模型节点、结果交给下游节点消费的实践指引。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能用「先打草稿再交卷」的类比向同事解释 CoT 的价值吗？</li>
+      <li>我会写零样本 CoT 和示例型 CoT 两种版本并做对比吗？</li>
+      <li>我的提示词里有没有「推理段 / 答案段」的分离标记？</li>
+      <li>我能在接到一个新任务时判断「要不要用 CoT」吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m2-2.html">← 上一节：Few-shot 示例提示</a>
+    <a href="s1-m2-4.html">下一节：提示词模板化与版本管理 →</a>
+  </div>
+
+</div>
+</body>
+</html>

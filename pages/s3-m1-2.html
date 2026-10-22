@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spring IoC 与 AOP 原理 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块一 · Java / SpringBoot / <strong>Spring IoC 与 AOP 原理</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>Spring IoC 与 AOP 原理</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块一 · Java / SpringBoot</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够解释 <strong>IoC 容器</strong>解决什么问题，说清 Bean 的创建、依赖注入与生命周期回调过程。</li>
+      <li>能够熟练使用<strong>构造器注入</strong>与常用注解（@Component/@Service/@Configuration）组织 Bean。</li>
+      <li>能够解释 <strong>AOP</strong> 的核心概念（切点、通知、切面），并说明 JDK 动态代理与 CGLIB 的区别。</li>
+      <li>能够编写一个实战切面（如耗时日志或权限校验），并解释同类内部调用为何会失效。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：IoC——把对象的创建权交出去</h3>
+    <p>没有 IoC 时，Service 里要自己 new 依赖的 DAO，对象间<strong>强耦合</strong>：换实现要改所有调用点，测试时无法替换假对象。<strong>控制反转（IoC）</strong>把"创建与装配对象"的权力交给 Spring 容器：开发者只声明"我需要什么"（构造器参数），容器负责创建、注入、管理生命周期。Spring Boot 启动时扫描 <strong>@Component/@Service/@Repository/@Controller/@Configuration</strong> 标注的类，注册为 <strong>BeanDefinition</strong>，实例化并注入，最后放入 <strong>ApplicationContext</strong> 供查找。注入方式中<strong>构造器注入是首选</strong>：依赖可声明为 final 保证不可变、天然支持循环依赖检测、测试时直接 new 即可，无需依赖容器。</p>
+    <p>生命周期要点：容器创建 → 依赖注入 → <strong>@PostConstruct</strong> 初始化（建立连接、预热缓存）→ 对外可用 → 容器关闭 → <strong>@PreDestroy</strong> 释放资源。常见坑：把有状态的 Bean 默认写成单例却在字段里存请求级数据，导致并发串数据。</p>
+
+    <h3>知识点 2：AOP——把横切逻辑抽出来</h3>
+    <p>日志、鉴权、耗时统计、事务这些逻辑散落在每个方法里既重复又难维护，<strong>AOP（面向切面编程）</strong>把它们抽成"切面"，在运行期<strong>动态织入</strong>。核心概念：<strong>切点（Pointcut）</strong>定义在哪些方法上生效（通常用表达式如 execution(* com.example.service.*.*(..))）；<strong>通知（Advice）</strong>定义做什么（@Before/@After/@Around/@AfterReturning/@AfterThrowing）；<strong>切面（Aspect）</strong>把两者组装起来。<strong>@Around</strong> 最强大，既能包住目标方法做前后处理，也能改写返回值、吞掉异常或重试。</p>
+    <p>原理层面：Spring 默认对实现了接口的 Bean 用 <strong>JDK 动态代理</strong>（基于接口的 Proxy），未实现接口时用 <strong>CGLIB</strong>（生成目标类的子类）；Spring Boot 2.x 起默认强制使用 CGLIB 代理。这带来一个著名坑：<strong>同类方法内部调用不经过代理对象</strong>，@Transactional、@Async 会失效——解决办法是注入自身代理、拆分类，或通过 AopContext.currentProxy() 获取代理对象。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：构造器注入组织 Service 与依赖：</p>
+<pre><code>// TicketService.java
+@Service
+public class TicketService {
+    private final TicketRepository repository;
+    private final Notifier notifier;
+
+    // 构造器注入：依赖清晰、可测试
+    public TicketService(TicketRepository repository, Notifier notifier) {
+        this.repository = repository;
+        this.notifier = notifier;
+    }
+
+    @Transactional
+    public Ticket close(long id) {
+        Ticket ticket = repository.findById(id)
+                .orElseThrow(() -&gt; new IllegalArgumentException("工单不存在: " + id));
+        ticket.close();
+        notifier.send("工单 " + id + " 已关闭");
+        return ticket;
+    }
+}
+</code></pre>
+    <p>示例二：耗时统计切面，自动作用于 service 包所有公开方法：</p>
+<pre><code>// PerfAspect.java
+@Aspect
+@Component
+public class PerfAspect {
+    private static final Logger log = LoggerFactory.getLogger(PerfAspect.class);
+
+    @Around("execution(* com.example.service.*.*(..))")
+    public Object measure(ProceedingJoinPoint pjp) throws Throwable {
+        long start = System.nanoTime();
+        try {
+            return pjp.proceed();          // 执行目标方法
+        } finally {
+            long cost = (System.nanoTime() - start) / 1_000_000;
+            log.info("{}.{} 耗时 {} ms",
+                    pjp.getTarget().getClass().getSimpleName(),
+                    pjp.getSignature().getName(), cost);
+        }
+    }
+}
+</code></pre>
+    <div class="tip">💡 提示：调试 Bean 问题时先用 <strong>Spring Boot Actuator</strong> 的 <strong>/actuator/beans</strong> 或在 IDE 里断点 <strong>refresh()</strong> 流程查看容器中的 Bean 与注入关系；遇到"注解不生效"，第一步永远是确认对象是否真的是容器里的代理。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：创建 TicketService + TicketRepository（内存实现即可），全部改造成构造器注入，验证去掉 @Autowired 后仍能正常注入。</li>
+      <li><strong>任务 2</strong>：编写 PerfAspect 耗时切面，调用三个不同的 Service 方法，观察日志输出并解释切点表达式匹配规则。</li>
+      <li><strong>任务 3</strong>：在 Service 中写一个自调用方法加 @Async（或 @Transactional），复现"内部调用不走代理导致注解失效"，再用注入自身代理的方式修复。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：用 @PostConstruct/@PreDestroy 实现一个启动时预热、关闭时释放的资源类，并通过日志验证生命周期顺序。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://spring.io/projects/spring-framework" target="_blank">Spring Framework 官网</a> — <span class="desc">定位 IoC/AOP 在整个框架中的位置，查看版本与特性说明。</span></li>
+      <li>📖 <a href="https://docs.spring.io/spring-framework/reference/core.html" target="_blank">Spring 官方参考文档：IoC 容器</a> — <span class="desc">Bean 作用域、生命周期、依赖注入的权威章节。</span></li>
+      <li>📖 <a href="https://docs.spring.io/spring-framework/reference/core.html#aop" target="_blank">Spring 官方参考文档：AOP</a> — <span class="desc">切点表达式语法、通知类型与代理机制的详细说明。</span></li>
+      <li>🛠 <a href="https://start.spring.io/" target="_blank">Spring Initializr</a> — <span class="desc">一分钟生成带 Spring Web 依赖的工程骨架，作为本节练习起点。</span></li>
+      <li>📖 <a href="https://docs.spring.io/spring-boot/reference/index.html" target="_blank">Spring Boot 官方参考文档</a> — <span class="desc">理解 Boot 如何在 IoC 之上做自动配置。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说出从启动到 Bean 可用，容器做了哪几步吗？</li>
+      <li>我能解释构造器注入相比字段注入的三个优势吗？</li>
+      <li>我能写出 @Around 切面并说清 Pointcut 表达式匹配了哪些方法吗？</li>
+      <li>JDK 动态代理与 CGLIB 的区别，以及同类自调用失效的原因，我能讲清楚吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m1-1.html">← 上一节：Java 语法进阶与集合、多线程</a>
+    <a href="s3-m1-3.html">下一节：SpringMVC 与 RESTful 开发 →</a>
+  </div>
+
+</div>
+</body>
+</html>

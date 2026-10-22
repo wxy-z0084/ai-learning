@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 能力封装为业务模块（审核、摘要、生成）· AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块三 · 业务系统 AI 集成 / <strong>AI 能力封装为业务模块（审核、摘要、生成）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>AI 能力封装为业务模块（审核、摘要、生成）</h1>
+    <div class="meta"><span class="time-chip">预计 1.5 天</span>模块三 · 业务系统 AI 集成</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>学完本节后，你能够把"调用大模型"收敛为领域服务接口，让业务层对 AI 细节无感知。</li>
+      <li>你能够分别设计<strong>内容审核、文本摘要、内容生成</strong>三类典型 AI 能力的输出结构与兜底策略。</li>
+      <li>你能够为 AI 模块补齐降级、缓存、限流与成本可观测，使其达到可上线的可靠性。</li>
+      <li>你能够建立评测样本集，用指标而非感觉迭代提示词与模型选型。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：封装原则——业务只依赖接口</h3>
+    <p>不要让"调大模型"的代码散落在 Controller 或其他 Service 里。正确姿势是定义<strong>领域接口</strong>：ContentModerator.audit(text)、ArticleSummarizer.summarize(articleId)、ContentGenerator.generate(DraftRequest)，AI 的实现细节（用哪个模型、提示词模板 code、解析逻辑、降级）全部封在实现类中。这样带来三个好处：换模型只改实现；业务代码可单元测试（把接口 mock 掉）；AI 故障时可以在实现内部降级而不影响主流程。<strong>同步与异步要分清</strong>：用户发帖的审核必须同步返回（几百毫秒内），批量文章摘要、历史数据回填则走消息队列或 @Async 异步执行，避免长耗时任务占满线程池。</p>
+
+    <h3>知识点 2：三类能力的设计要点</h3>
+    <p><strong>审核</strong>：让模型输出结构化 JSON（如 {"verdict":"pass|review|block","reasons":["..."],"score":0.95}），配合 temperature=0 保证稳定；设置"可疑→人工复审"中间档而非二元判定；可用规则敏感词库先做粗筛（省钱省时），再用模型细判，甚至用另一个模型对争议内容交叉复核。<strong>摘要</strong>：长文先分块再"映射-归约"（每块生成小摘要，再合并成总摘要），明确字数与要点数量约束，输出固定字段（一句话概述、3~5 个要点、关键词）。<strong>生成</strong>：模板化落地产出（如商品描述按"卖点/规格/场景"三段固定结构），生成结果先过审核再入库，面向用户的文案默认<strong>人工确认后发布</strong>。</p>
+
+    <h3>知识点 3：可靠性、成本与评测</h3>
+    <p>上线前必须回答：模型挂了怎么办？——每类能力定义<strong>降级路径</strong>：审核降级为"规则通过 + 事后巡检"，摘要降级为"取首段前 200 字"，生成直接报"功能维护中"。省钱三招：<strong>相同输入缓存结果</strong>（Redis 存 prompt hash → 结果，TTL 1 天）、批量任务走异步错峰、只把必要字段注入提示词。可观测要记录：模板版本、模型名、Token 用量、耗时、成功/降级次数、以及业务侧的<strong>采纳率/拦截准确率</strong>。评测方面，准备一份 50~100 条的<strong>黄金样本集</strong>（输入 + 期望结论），每次改提示词或换模型都跑一遍打分，避免"改了 A 场景坏了 B 场景"。常见坑：AI 输出不经校验直接写库、没有兜底导致模型抖动演变成线上事故、按 demo 效果拍脑袋上线、成本随用量线性上涨无人看板。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例：内容审核模块的接口定义与实现骨架（含结构化输出、超时降级与调用记录）：</p>
+<pre><code>// 业务层只认这个接口，完全不知道背后是哪个模型
+public interface ContentModerator {
+    AuditResult audit(String text);
+}
+
+public record AuditResult(String verdict, List&lt;String&gt; reasons, boolean degraded) {
+    public boolean blocked() { return "block".equals(verdict); }
+    public boolean needHuman() { return "review".equals(verdict); }
+}
+
+@Service
+@RequiredArgsConstructor
+public class AiContentModerator implements ContentModerator {
+    private final AiClient aiClient;
+    private final PromptRenderer promptRenderer;   // 上一节的模板渲染器
+    private final ContentAuditLogMapper auditLogMapper;
+    private static final AuditResult DEGRADED_PASS =
+            new AuditResult("review", List.of("模型不可用，转人工复审"), true);
+
+    @Override
+    public AuditResult audit(String text) {
+        long start = System.currentTimeMillis();
+        try {
+            // 1. 规则粗筛：命中敏感词直接拦截，省下一次模型调用
+            if (sensitiveWordService.hit(text)) {
+                return new AuditResult("block", List.of("命中敏感词库"), false);
+            }
+            // 2. 渲染模板（temperature=0，要求只输出 JSON）
+            String prompt = promptRenderer.render("contentAudit",
+                    Map.of("content", text));
+            String raw = aiClient.chat(prompt);
+
+            // 3. 解析并兜底：模型偶尔会包 markdown 代码块，先剥离再解析
+            AuditResult result = parseJson(raw);
+            auditLogMapper.insert(buildLog(text, result, System.currentTimeMillis() - start));
+            return result;
+        } catch (Exception e) {
+            log.error("审核失败，降级为人工复审", e);
+            return DEGRADED_PASS;   // 绝不因模型故障阻塞用户发帖
+        }
+    }
+}
+</code></pre>
+    <p>异步摘要建议用消息队列驱动，Controller 只负责投递任务，避免同步长耗时：</p>
+<pre><code>@RestController
+@RequiredArgsConstructor
+public class ArticleController {
+    private final ArticleSummaryService summaryService;
+
+    @PostMapping("/articles/{id}/summary")
+    public R&lt;String&gt; requestSummary(@PathVariable Long id) {
+        summaryService.submit(id);      // 投递到 MQ 或 @Async 线程池，立即返回
+        return R.ok("摘要任务已提交");
+    }
+}
+
+@Async("aiExecutor")
+public void submit(Long articleId) {   // 消费端执行：分块 → 小摘要 → 合并
+    String summary = summarizer.summarize(articleId);
+    articleMapper.updateSummary(articleId, summary);
+}
+</code></pre>
+    <div class="tip">💡 提示：给每个 AI 能力做一张"健康看板"：近 24 小时调用量、成功率、平均 Token 成本、降级次数。有了它，"要不要换更便宜的模型"就变成看数字做决策，而不是开会争论。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：抽象 ContentModerator 接口与 AiContentModerator 实现，在"用户发帖"流程中接入审核，要求同步返回且模型故障时自动转人工。</li>
+      <li><strong>任务 2</strong>：实现文章摘要能力：长文分块 + 归约合并，输出"概述/要点/关键词"三段结构，用消息队列异步落库。</li>
+      <li><strong>任务 3</strong>：实现内容生成能力并加"生成 → 自动审核 → 人工确认 → 入库"的状态流转，把 AI 输出挡在发布之前。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：建立 50 条黄金样本集与打分脚本，跑一轮基线；再改一版提示词，用数据对比给出是否上线的结论。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://spring.io/projects/spring-ai" target="_blank">Spring AI</a> — <span class="desc">结构化输出、 Advisor 链与工具调用，可加速 AI 模块的工程化封装</span></li>
+      <li>📖 <a href="https://langfuse.com/" target="_blank">Langfuse</a> — <span class="desc">提示词版本、调用追踪与评测打分的一体化平台，可观测的现成方案</span></li>
+      <li>📖 <a href="https://open.bigmodel.cn/dev/api" target="_blank">智谱开放平台 API 文档</a> — <span class="desc">结构化输出与 JSON 模式支持情况，选默认模型时对照</span></li>
+      <li>📖 <a href="https://cloud.tencent.com/document/product/1729" target="_blank">腾讯云混元大模型文档</a> — <span class="desc">国内厂商的能力边界、限流与合规要求参考</span></li>
+      <li>📖 <a href="https://www.promptingguide.ai/zh" target="_blank">Prompt Engineering Guide（中文）</a> — <span class="desc">结构化输出与评测方法，配合黄金样本集迭代提示词</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我的业务代码中是否还散落着裸调大模型的代码？是否都收敛到了领域接口后面？</li>
+      <li>审核、摘要、生成三类能力各自的降级路径是什么？我验证过降级真的生效吗？</li>
+      <li>我的 AI 调用是否有 Token 成本、耗时、成功率的记录与看板？</li>
+      <li>我有没有一份黄金样本集，能证明新版提示词/模型确实更好而不是"感觉更好"？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m3-4.html">← 上一节：业务数据注入提示词（提示词模板管理）</a>
+    <a href="s3-m4-1.html">下一节：低代码平台核心概念与选型 →</a>
+  </div>
+
+</div>
+</body>
+</html>

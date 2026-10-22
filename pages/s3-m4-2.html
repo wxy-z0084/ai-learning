@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>表单、流程、页面可视化配置 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块四 · 低代码开发 / <strong>表单、流程、页面可视化配置</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>表单、流程、页面可视化配置</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块四 · 低代码开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够设计一张生产可用的业务表单：选对字段类型、写清校验规则、配置字段联动与明细子表。</li>
+      <li>能够读懂并绘制基本的<strong>审批流程图</strong>，说明串行、并行、条件分支、会签/或签在引擎中的落地方式。</li>
+      <li>能够用页面编排能力拼出"列表 + 详情 + 表单 + 看板"四类页面，并说清各自的数据绑定与权限控制点。</li>
+      <li>能够把三者串成一个完整应用：数据模型 → 表单 → 流程 → 页面，跑通从提交到审批结束的闭环。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：表单是低代码应用的数据入口</h3>
+    <p>表单配置的底层是<strong>字段 Schema</strong>：每个字段由类型（文本、数字、日期、枚举、关联记录、附件）、约束（必填、正则、取值范围）和展示（默认值、占位提示、显隐条件）三部分组成。设计要点：<strong>字段类型先于校验规则</strong>——金额用 Decimal 而非 Text，日期用 Date 而非字符串，否则后续统计、排序全要返工；校验要"前紧后松"，提交时服务端必须再校验一遍，前端规则只是体验优化。</p>
+    <p>两个高频能力是<strong>字段联动</strong>（选择"报销类型"后才显示"发票张数"，或按部门带出默认额度）和<strong>明细子表</strong>（报销明细多行录入，自动汇总金额）。常见坑：联动只写在前端导致 API 直调绕过规则；子表行数不设上限在大数据量下拖垮表单；把业务逻辑写进计算字段，一旦口径变化无处修改——复杂计算应放到流程节点或后端函数里。</p>
+
+    <h3>知识点 2：流程引擎——从流程图到可执行定义</h3>
+    <p>低代码的流程能力分两档：<strong>简化审批流</strong>（串行、条件、会签，配置简单但表达力有限）和<strong>完整 BPMN 引擎</strong>（节点、网关、事件齐全，能表达并行网关、边界事件、子流程）。无论哪档，流程定义最终都是一份可执行的<strong>元数据文件</strong>，引擎按它推动流程实例流转。必会的节点类型：审批节点（含会签"全部通过"与或签"一人通过"）、条件分支（按金额、类型走不同链路）、抄送节点、自动节点（调 API 或写数据）、结束节点。</p>
+    <p>设计流程时先定三条规则：一是<strong>超时与兜底</strong>——审批人离职、忘记处理时的自动催办、自动同意或转办策略；二是<strong>版本管理</strong>——新流程上线后，已发起的旧实例按原版本继续跑还是迁移；三是<strong>可回退性</strong>——驳回到发起人、驳回到上一节点必须显式建模。常见坑：条件分支的判断条件没做"都不命中"的默认分支，流程实例卡死在网关上。</p>
+
+    <h3>知识点 3：页面编排——四类页面各有套路</h3>
+    <p>可视化页面配置本质是<strong>布局容器 + 数据源绑定 + 事件交互</strong>：容器决定栅格与响应式，数据源决定这个区块读哪张表/哪个接口的什么数据，事件决定按钮点下去调什么。四类标准页面各有固定套路：<strong>列表页</strong>（筛选区 + 表格 + 分页 + 行操作，重点配好筛选字段与列宽）、<strong>详情页</strong>（分区展示主表与子表，注意字段级权限）、<strong>表单页</strong>（复用表单引擎，别在页面层重复实现校验）、<strong>仪表盘</strong>（图表组件绑定聚合查询，注意统计口径与刷新频率）。页面层只做编排，业务规则沉到表单与流程里，这样换皮肤、改布局才不会牵动逻辑。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：一张"报销申请"表单的字段 Schema（JSON 描述，主流平台的表单导出格式大同小异，可对照你的平台改写）。注意必填、正则、金额精度与子表汇总：</p>
+<pre><code>{
+  "formId": "expense_apply",
+  "fields": [
+    { "key": "type",     "label": "报销类型", "type": "enum", "required": true,
+      "options": ["差旅", "办公", "业务招待"], "联动": { "差旅": ["trip_detail"] } },
+    { "key": "amount",   "label": "总金额",   "type": "decimal", "precision": 2,
+      "required": true, "min": 0.01, "max": 50000,
+      "帮助": "超过 5000 元触发部门经理 + 财务双审" },
+    { "key": "invoice_no", "label": "发票号", "type": "text",
+      "pattern": "^[0-9]{8,20}$", "requiredWhen": { "type": "办公" } },
+    { "key": "items",     "label": "报销明细", "type": "subtable",
+      "minRows": 1, "maxRows": 50,
+      "columns": [
+        { "key": "date",  "label": "费用日期", "type": "date" },
+        { "key": "note",  "label": "事由",     "type": "text", "required": true },
+        { "key": "money", "label": "金额",     "type": "decimal", "precision": 2 }
+      ],
+      "footerSum": "money" }
+  ]
+}</code></pre>
+    <p>示例二：对应的审批流程定义（BPMN 2.0 简化片段）。核心是金额条件网关与会签审批，"条件都不命中"时走 else 分支兜底：</p>
+<pre><code>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+               xmlns:flowable="http://flowable.org/bpmn"&gt;
+  &lt;process id="expense_process" name="报销审批"&gt;
+    &lt;startEvent id="start"/&gt;
+    &lt;sequenceFlow sourceRef="start" targetRef="gateway_amount"/&gt;
+
+    &lt;exclusiveGateway id="gateway_amount"/&gt;  &lt;!-- 按金额分流 --&gt;
+    &lt;sequenceFlow sourceRef="gateway_amount" targetRef="approve_manager"
+                  name="金额&gt;5000"&gt;
+      &lt;conditionExpression&gt;${amount &gt; 5000}&lt;/conditionExpression&gt;
+    &lt;/sequenceFlow&gt;
+    &lt;sequenceFlow sourceRef="gateway_amount" targetRef="approve_finance" name="否则"/&gt;
+
+    &lt;userTask id="approve_manager" name="部门经理审批"
+              flowable:candidateGroups="managers"/&gt;
+    &lt;userTask id="approve_finance" name="财务审批"
+              flowable:candidateGroups="finance"
+              flowable:completionCondition="${nrOfCompletedInstances / nrOfInstances &gt;= 1}"/&gt;
+
+    &lt;userTask id="auto_pass" name="金额≤500 直接通过"/&gt;
+    &lt;endEvent id="end"/&gt;
+  &lt;/process&gt;
+&lt;/definitions&gt;</code></pre>
+    <div class="tip">💡 先在纸上画清楚"谁在什么条件下审、超时怎么办"，再去平台里拖节点——反过来做，你会不断返工；流程测试时务必覆盖三条路径：正常通过、中途驳回、条件全不命中的兜底路径。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：在试用平台里按示例一建"报销申请"实体与表单，配置必填、正则、金额上限、字段联动和 50 行内的明细子表，用非法数据（空发票号、金额 0、60 行明细）逐条验证校验生效。</li>
+      <li><strong>任务 2</strong>：按示例二画出审批流程：金额 &gt; 5000 走经理 + 财务双审，≤ 5000 单人审批，配置一条超时 24 小时自动催办，并用三个测试单据跑通三条分支。</li>
+      <li><strong>任务 3</strong>：编排四个页面——列表页（按类型/时间筛选）、详情页（含明细子表与审批记录）、提交表单页、统计看板（按类型汇总金额），给财务角色配置"只见财务字段"的字段级权限。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：把流程版本升一版（增加"大额需 CEO 审"节点），观察在途实例走旧版本还是新版本，记录平台的版本策略。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://docs.camunda.io/" target="_blank">Camunda 官方文档</a> — <span class="desc">BPMN 节点语义、网关与事件的权威讲解，看懂它再回平台配置流程会通透很多。</span></li>
+      <li>📖 <a href="https://aisuda.baidubce.com/amis/" target="_blank">百度 amis 可视化框架文档</a> — <span class="desc">页面编排的 Schema 长什么样：表单、表格、图表组件的 JSON 配置范例可直接借鉴。</span></li>
+      <li>📖 <a href="https://www.nocobase.com/" target="_blank">NocoBase 开源低代码平台</a> — <span class="desc">可本地部署观察表单、流程、页面三块元数据如何存储与执行，适合对照学习。</span></li>
+      <li>📖 <a href="https://www.flowable.com/" target="_blank">Flowable 开源流程引擎</a> — <span class="desc">开源 BPMN 引擎官网，其文档与示例可用于理解流程定义到实例的执行模型。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能独立设计一张含联动、子表、服务端校验的表单，并说出前端校验为何不能作为唯一防线吗？</li>
+      <li>我能画出带条件网关的审批流程图，并处理超时、驳回、条件不命中三种边界吗？</li>
+      <li>我能说清列表、详情、表单、看板四类页面各自的数据绑定与权限控制点吗？</li>
+      <li>我能在平台上完整跑通"提交 → 分支审批 → 结束 → 看板统计"的闭环吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m4-1.html">← 上一节：低代码平台核心概念与选型</a>
+    <a href="s3-m4-3.html">下一节：低代码与自定义代码扩展结合 →</a>
+  </div>
+
+</div>
+</body>
+</html>

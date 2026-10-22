@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG 效果评估与优化 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块三 · RAG（检索增强生成）/ <strong>RAG 效果评估与优化</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>RAG 效果评估与优化</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块三 · RAG（检索增强生成）</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够区分<strong>检索质量</strong>与<strong>生成质量</strong>两类评估维度，并说出各自的核心指标。</li>
+      <li>能够使用 RAGAS 框架对一个 RAG 系统批量打分，得到 Faithfulness、Context Precision 等指标。</li>
+      <li>能够根据低分指标定位问题环节（切分、检索、提示词、模型），并选择对应的优化手段。</li>
+      <li>能够搭建一套可复跑的离线评测集与线上反馈闭环，让优化效果用数字说话。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：为什么要评估——RAG 的不确定性比你想的大</h3>
+    <p>RAG 系统由"切分 → 向量化 → 检索 → 提示词 → 生成"多环节串联，<strong>任何一个环节的微调都会改变最终答案</strong>。没有评测，你就只能靠"问几个问题看看效果"，换个人问就翻车。评估分两层：<strong>检索质量</strong>（该找的文档片段找到了吗、排得靠前吗）决定答案的上限；<strong>生成质量</strong>（答案忠实于检索内容吗、切题吗）决定答案的下限。二者要分开测，才能定位问题出在哪一层。</p>
+    <p>评估分两种形态：<strong>离线评估</strong>——用固定评测集在每次改动后批量跑分，用于迭代调优；<strong>在线监控</strong>——线上记录 query、召回片段、答案、用户点赞点踩，用于发现真实分布中的长尾问题。两者结合才是完整闭环。</p>
+
+    <h3>知识点 2：RAGAS 的四大核心指标</h3>
+    <p><strong>RAGAS</strong> 是目前最流行的 RAG 专用评估框架，用 LLM 作为裁判（LLM-as-Judge）自动打分，无需人工逐条标注。核心指标：<strong>Faithfulness（忠实度）</strong>——答案中的每个论断能否从检索到的上下文中推出来，直接衡量幻觉程度；<strong>Answer Relevancy（答案相关性）</strong>——答案是否围绕问题展开，有没有答非所问或冗余；<strong>Context Precision（上下文精度）</strong>——检索到的片段里相关的排得是否靠前，衡量检索与重排的效果；<strong>Context Recall（上下文召回）</strong>——参考答案所需的信息是否都被检索到了，直接对应召回率。</p>
+    <p>读指标的思路：<strong>Faithfulness 低</strong>是模型在"编"，要么上下文没给够，要么提示词没约束"仅依据资料回答"；<strong>Context Recall 低</strong>是检索没找到，回头查切分、向量模型和混合检索；<strong>Context Precision 低</strong>是找到了但排序差，加重排序；<strong>Relevancy 低</strong>多是提示词或 chunk 噪声问题。</p>
+
+    <h3>知识点 3：构建评测集与跑分流程</h3>
+    <p>评测集 = <strong>问题 + 检索到的上下文 + 系统答案 + 人工标注的金标准答案（ground truth）</strong>。规模 20～50 条起步，覆盖高频问题、专有名词问题、"资料里没有答案"的负样本问题。构建捷径：用大模型从你的文档里自动生成候选 QA 对，再<strong>人工审核修正</strong>（AI 生成、人工把关），成本只有纯手标的零头。</p>
+
+    <h3>知识点 4：常见问题与优化对照表</h3>
+    <p>答案胡编 → 提示词明确"仅依据提供的资料，资料不足时回答'未找到相关信息'"，并要求引用来源；检索不中 → 换切分粒度、上混合检索与重排、给 BGE 加检索指令前缀；答案冗长空洞 → 减少 Top-K 数量、缩小 chunk、限制输出格式；多跳问题（需要综合多份文档）→ 先用大模型拆解子问题分别检索再汇总；延迟过高 → 缓存高频 query 的答案、压缩上下文、用更快的重排模型。<strong>每次只改一个变量，跑一遍指标再决定去留。</strong></p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：用 RAGAS 对你的 RAG 系统批量打分（先把每个问题的"答案 + 检索上下文"收集好）：</p>
+<pre><code># pip install ragas datasets langchain langchain-openai
+from datasets import Dataset
+from ragas import evaluate
+from ragas.metrics import context_precision, context_recall, faithfulness, answer_relevancy
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+
+rows = {
+    "question": ["如何重置登录密码？", "发票可以开增值税专用发票吗？"],
+    "answer": [rag_answer_1, rag_answer_2],                  # 你的 RAG 系统生成的答案
+    "contexts": [[chunk_1a, chunk_1b], [chunk_2a]],          # 各问题检索到的片段列表
+    "ground_truth": ["在登录页点击'忘记密码'，通过绑定手机号验证码重写密码。",
+                     "可以，需在开票申请中勾选'专用发票'并填写公司税号。"],  # 人工标注
+}
+dataset = Dataset.from_dict(rows)
+
+result = evaluate(
+    dataset,
+    metrics=[context_precision, context_recall, faithfulness, answer_relevancy],
+    llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+    embeddings=OpenAIEmbeddings(model="text-embedding-3-small"),
+)
+print(result)   # 输出各指标均值，如 {'faithfulness': 0.87, 'context_recall': 0.72, ...}</code></pre>
+
+    <p>示例二：用大模型自动生成评测集候选（再人工审核入库）：</p>
+<pre><code># pip install langchain langchain-openai
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import JsonOutputParser
+
+gen_prompt = ChatPromptTemplate.from_template(
+    "根据下面的资料生成 3 个问答对：问题要口语化，答案必须完全来自资料。"
+    '只输出 JSON 数组，格式：[{{"question": "...", "answer": "..."}}]\n\n资料：\n{context}'
+)
+chain = gen_prompt | ChatOpenAI(model="gpt-4o-mini", temperature=0) | JsonOutputParser()
+qa_pairs = chain.invoke({"context": open("faq.txt", encoding="utf-8").read()})
+# 人工逐条审核 qa_pairs，修正错误答案后再加入评测集</code></pre>
+
+    <div class="tip">💡 提示：裁判模型建议用能力较强的模型（如 gpt-4o-mini 起步，重要项目用 gpt-4o），且 temperature 设为 0；同一评测集要保持裁判模型固定，否则分数本身会波动。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为你的知识库构建 20 条评测集（含 3 条"资料中无答案"的负样本），人工标注 ground truth。</li>
+      <li><strong>任务 2</strong>：用 RAGAS 跑通第一次评估，记录四项指标分数，并指出当前最大的短板在检索层还是生成层。</li>
+      <li><strong>任务 3</strong>：针对短板做一次优化（如加重排序或收紧提示词），重新跑分，用前后对比表验证优化有效。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：给系统加上"资料不足时拒答"逻辑，用负样本测试拒答率与误答率的变化。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://docs.ragas.io/" target="_blank">RAGAS 官方文档</a> — <span class="desc">指标定义、快速开始与自定义指标，跑 RAG 评估前必读。</span></li>
+      <li>📖 <a href="https://www.trulens.org/" target="_blank">TruLens 官方文档</a> — <span class="desc">另一主流评估框架，提供 RAG 三元组追踪与可视化，适合排查个案。</span></li>
+      <li>📖 <a href="https://docs.llamaindex.co/" target="_blank">LlamaIndex 文档（Evaluation 一节）</a> — <span class="desc">检索与生成评估的另一套成熟实现，可对照理解指标口径。</span></li>
+      <li>🛠 <a href="https://promptfoo.dev/" target="_blank">promptfoo</a> — <span class="desc">配置化 LLM 评测与回归测试工具，适合把评估接入 CI。</span></li>
+      <li>📖 <a href="https://arxiv.org/abs/2005.11401" target="_blank">RAG 原始论文（arXiv）</a> — <span class="desc">检索增强生成的开山论文，理解这一范式的思想源头。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清检索质量与生成质量分别看哪些指标吗？</li>
+      <li>我能在 30 分钟内用 RAGAS 给自己的 RAG 系统跑出四项指标吗？</li>
+      <li>面对"Faithfulness 低"这样的结果，我能定位到具体原因并给出至少两种优化方案吗？</li>
+      <li>我的评测集是否包含负样本，并且每次优化后都会复跑对比？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m3-4.html">← 上一节：检索策略（混合检索、重排序）</a>
+    <a href="s2-m4-1.html">下一节：核心组件：Model / Prompt / Chain →</a>
+  </div>
+
+</div>
+</body>
+</html>

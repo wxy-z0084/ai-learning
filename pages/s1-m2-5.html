@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>提示词评估与迭代优化 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块二 · 提示词工程 / <strong>提示词评估与迭代优化</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>提示词评估与迭代优化</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块二 · 提示词工程</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够搭建一个 20~50 条规模的提示词评测集，并定义可量化的评分维度。</li>
+      <li>能够区分自动化指标（准确率、格式通过率、延迟、成本）与人工偏好评估的使用场景。</li>
+      <li>能够用「单变量改动 + 全量回归」的流程科学迭代提示词，而不是凭感觉反复重写。</li>
+      <li>能够借助 LLM-as-a-Judge 思路批量评估开放式输出，并知道其局限与校准方法。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：先有评测集，再谈优化</h3>
+    <p>没有评测集的提示词优化是玄学——改完只能说「感觉好了点」。评测集的核心要求是<strong>小而代表性强</strong>：从真实流量里采样 20~50 条输入，覆盖<strong>典型场景、边界样本、对抗样本</strong>（注入攻击、超长输入、模糊提问）三类，每条标注期望结果。期望结果不必是完整标准答案，可以是<strong>要点清单</strong>（「必须提到退款时限」）、<strong>硬性约束</strong>（「输出必须是合法 JSON」「必须拒绝」）或<strong>关键事实</strong>（「年假天数为 5」）。维度上至少盯四个：<strong>准确性</strong>（事实与要点对不对）、<strong>格式合规率</strong>（能被程序解析吗）、<strong>拒绝率合理性</strong>（该拒的拒了吗、不该拒的拒了吗）、<strong>成本与延迟</strong>（平均 token 数、首字耗时）。</p>
+    <p>构建顺序建议：先手动写 10 条「黄金样本」对齐团队预期 → 从线上/模拟真实提问里补 20 条分布样本 → 最后加 10 条对抗样本。评测集要<strong>版本化</strong>，与上一节的提示词模板放同一个仓库。</p>
+
+    <h3>知识点 2：自动化评分与 LLM-as-a-Judge</h3>
+    <p>可程序判定的维度（JSON 合法、字段齐全、含指定关键词、拒绝话术命中）写成断言脚本，每次改动全量跑，秒级出分。难判定的开放式维度（总结是否忠于原文、语气是否专业）引入 <strong>LLM-as-a-Judge</strong>：用另一个模型（建议用<strong>不同家族</strong>的模型，减少同源偏置）按评分标准打分或两两对比。关键工程细节：<strong>①给评审模型明确的 rubric</strong>（每个分数档对应什么表现），不要只说「打 1-5 分」；<strong>②先用 10~20 条人工标注校准</strong>，计算人机一致率，一致率低于 80% 就先修 rubric；<strong>③评审时隐藏「哪个是新版本」</strong>，防位置偏置。另一种低成本做法是 <strong>A/B 对比偏好投票</strong>：对同一批输入分别跑 v1、v2，让评审模型二选一并说明理由，比绝对打分更稳。</p>
+
+    <h3>知识点 3：迭代循环与常见误区</h3>
+    <p>标准迭代循环是<strong>「测 → 读错误 → 归因 → 单变量改 → 回归」</strong>：先跑评测拿到基线分数，然后<strong>专门读失败样本</strong>——80% 的问题会集中在两三类失败模式上（如「格式漂移」「编造数字」），针对最高频的一类<strong>只改一个变量</strong>（加一条约束 / 换示例 / 调模型），再跑全量回归确认「这一类变好、其他不退化」。常见误区有四个：<strong>一次改多处</strong>——涨了不知道归功于哪条，下次想撤销都没法定位；<strong>在训练样本上调参过拟合</strong>——评测集里的 5 条退款问题全对了，线上换个说法又错，对策是保留一部分<strong>留出集</strong>只做最终验收，调优时不可见；<strong>唯分数论</strong>——延迟和 token 成本涨 3 倍换 2 个点准确率，业务上未必划算；<strong>不记录</strong>——每次改动记进 CHANGELOG（版本、动机、评测分数），一个月后你才有资产可复用。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：一个最小可用的提示词回归评测脚本，覆盖「格式合规率 + 要点命中率 + 平均 token 成本」三个自动指标：</p>
+<pre><code>import json
+import os
+import requests
+
+# 评测集：每条含输入、硬性约束（可程序判定）
+DATASET = [
+    {"q": "年假有多少天？", "must_contain": ["年假", "5 天"]},
+    {"q": "帮我写一首情诗", "must_refuse": True},
+    {"q": "报销单最晚什么时候交？", "must_contain": ["次月 10 日"]},
+    # ……建议扩到 30 条以上
+]
+
+def ask(prompt: str) -> str:
+    r = requests.post(
+        "https://api.deepseek.com/chat/completions",
+        headers={"Authorization": f"Bearer {os.environ['DEEPSEEK_API_KEY']}"},
+        json={"model": "deepseek-chat",
+              "messages": [{"role": "user", "content": prompt}]},
+        timeout=30,
+    )
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
+
+def evaluate(system_prompt: str) -> dict:
+    ok, total_tokens = 0, 0
+    for case in DATASET:
+        out = ask(system_prompt + "\n\n# 用户提问\n" + case["q"])
+        total_tokens += len(system_prompt + out)
+        if case.get("must_refuse"):
+            passed = any(w in out for w in ["无法", "抱歉", "帮不了"])
+        else:
+            passed = all(w in out for w in case["must_contain"])
+        ok += int(passed)
+    return {"accuracy": ok / len(DATASET),
+            "avg_tokens": total_tokens // len(DATASET)}
+
+if __name__ == "__main__":
+    print(evaluate(open("prompts/current.md", encoding="utf-8").read()))
+</code></pre>
+    <p>示例二：LLM-as-a-Judge 的评审提示词模板（rubric 写死，输出结构化分数）：</p>
+<pre><code># 角色
+你是提示词评测员，评估「候选回答」对「用户问题」的完成质量。
+
+# 评分标准（rubric）
+5 分：要点齐全、忠于参考材料、格式完全符合要求
+4 分：要点齐全，个别措辞欠佳或轻微冗余
+3 分：遗漏 1 个要点，或有 1 处轻微编造
+2 分：遗漏多个要点，或明显编造事实
+1 分：答非所问，或格式无法解析
+
+# 输入
+用户问题：{{question}}
+参考材料：{{reference}}
+候选回答：{{answer}}
+
+# 输出
+只输出一行 JSON：{"score": <1-5>, "flaw": "<一句话指出最大问题>"}
+</code></pre>
+    <div class="tip">💡 提示：把「评审模型」与「被评模型」用不同家族（如用 GPT 系评审 DeepSeek 系生成），能显著减少「自己给自己打高分」的同源偏置；每次评审保留原始分数与评语，攒够 50 条后抽样人工复核一次，持续校准评审质量。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为你的核心提示词构建 20 条评测集（含 5 条边界/对抗样本），写清每条的期望要点或硬约束。</li>
+      <li><strong>任务 2</strong>：跑出当前版本的基线分数（准确率、格式合规率、平均 token），保存为评测记录第 0 版。</li>
+      <li><strong>任务 3</strong>：阅读失败样本，找出最高频的一类失败模式，只改一个变量做一次迭代，回归后记录分数变化与归因结论。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：用评审提示词模板实现 LLM-as-a-Judge，人工标注 10 条分数，计算人机一致率并据此调整 rubric。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://platform.openai.com/docs/guides/prompt-engineering" target="_blank">OpenAI 提示词工程指南</a> — <span class="desc">官方对「测量效果、系统性迭代」的建议，方法与模型无关。</span></li>
+      <li>📖 <a href="https://arxiv.org/abs/2306.05685" target="_blank">LLM-as-a-Judge 论文（Judging LLM-as-a-Judge）</a> — <span class="desc">评审范式与位置偏置、自我偏置等已知问题的来源。</span></li>
+      <li>📖 <a href="https://www.promptingguide.ai/zh" target="_blank">promptingguide.ai 中文版</a> — <span class="desc">评估与系统化调优章节的中文参考。</span></li>
+      <li>📖 <a href="https://www.coze.cn/docs" target="_blank">扣子官方文档</a> — <span class="desc">结合扣子调试区与数据统计，把评测思路落到低代码平台的实践。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我有一个可以一键跑完、给出量化分数的提示词评测集吗？</li>
+      <li>我读失败样本的时间多于「凭感觉重写提示词」的时间吗？</li>
+      <li>我能做到每次只改一个变量、并用回归分数验证归因吗？</li>
+      <li>我的每次提示词迭代都记录了动机与分数变化吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m2-4.html">← 上一节：提示词模板化与版本管理</a>
+    <a href="s1-m3-1.html">下一节：文本 + 图像输入输出处理 →</a>
+  </div>
+
+</div>
+</body>
+</html>

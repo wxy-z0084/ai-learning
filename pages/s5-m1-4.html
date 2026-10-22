@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>升级效果验证与业务价值评估 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段五 · 传统项目智能化升级 / 模块一 · 项目集成 AI 能力 / <strong>升级效果验证与业务价值评估</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段五 · 传统项目智能化升级</div>
+    <h1>升级效果验证与业务价值评估</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块一 · 项目集成 AI 能力</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够构建一份<strong>不泄漏、有代表性</strong>的评测集，并说明样本从哪来、覆盖哪些类型。</li>
+      <li>能够为场景选择<strong>质量指标 + 效率指标 + 成本指标</strong>三类指标并给出量化目标线。</li>
+      <li>能够用<strong>离线评测、人工盲评、线上 A/B</strong> 三种手段逐层验证，解释各自能证明什么。</li>
+      <li>能够把技术指标翻译成<strong>业务价值数字</strong>（节省工时、错误下降、周期缩短），完成上线汇报。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：评测集怎么建</h3>
+    <p>评测集是 AI 升级的"考卷"，其质量决定结论可信度。<strong>来源</strong>：优先取真实历史样本（已有人工处理结果的工单、已归档的合同），补以构造的<strong>边界样本</strong>（空值、超长、乱码、方言表述、对抗提问）。<strong>规模</strong>：PoC 阶段 50–100 条即可看出方向，正式验收建议 200 条以上。<strong>分层</strong>：按类型/渠道/难度分层抽样，避免某一大类霸榜导致"平均分虚高"。<strong>防泄漏</strong>：评测样本绝不能出现在提示词示例、微调训练集里，否则分数是自欺欺人。评测集要<strong>冻结版本</strong>（存文件 + 哈希），每次评测用同一份，才可横向对比。</p>
+
+    <h3>知识点 2：三类指标与目标线</h3>
+    <p><strong>① 质量指标</strong>：分类用准确率/F1，抽取用字段级精确率与召回，生成用人工可用率（好/中/差三档）与<strong>幻觉率</strong>（编造事实的样本占比）。开放式任务无法字符串比对时，用<strong>LLM-as-judge</strong>：让另一个模型按量表打 1–5 分，但必须先用 30–50 条人工标注校准裁判模型，人工一致率低于 0.7 就别用。<strong>② 效率指标</strong>：P95 延迟、人工介入率（转人工的占比下降了多少）。<strong>③ 成本指标</strong>：单次调用成本、日 token 消耗。目标线要写成可判定的形式，如"分类准确率 ≥ 90%、幻觉率 ≤ 2%、P95 ≤ 3s、单次 ≤ 0.01 元"，而不是"效果要好"。</p>
+
+    <h3>知识点 3：验证的三层与价值换算</h3>
+    <p>三层递进：<strong>离线评测</strong>（跑冻结评测集，证明基本能力，几小时内完成）→ <strong>人工盲评</strong>（新旧方案各占一半、隐藏来源，由业务专家按量表打分，证明"人更愿意用哪个"）→ <strong>线上 A/B</strong>（按用户或流量 50/50 分流，观察真实指标，证明业务收益）。价值换算公式：<strong>月收益 = 覆盖量 × 单次节省分钟 × 人力分钟成本 + 错误减少 × 单次错误损失</strong>，再减去月度模型成本与运维分摊，得到净收益与回本周期。汇报时把"准确率 92%"翻译成"每月少 3 人天返工、回本 2.4 个月"，业务方才买账。上线后还要有<strong>持续评测</strong>：每周抽样 50 条复跑，监控模型升级或数据漂移引起的退化。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：一个<strong>离线评测脚本</strong>（Python），读取评测集 JSONL（每行含输入、期望答案、类型），调用你的 AI 封装并统计准确率、幻觉率、延迟与成本：</p>
+<pre><code>import json, time, statistics
+
+PRICE_PER_1K_TOKEN = 0.0008  # 元 / 1K tokens，按实际模型价目表填写
+
+def evaluate(dataset_path: str, predict_fn) -> dict:
+    rows = [json.loads(l) for l in open(dataset_path, encoding="utf-8")]
+    latencies, correct, hallucination, tokens = [], 0, 0, 0
+    by_type: dict = {}
+
+    for row in rows:
+        t0 = time.perf_counter()
+        out = predict_fn(row["input"])
+        latencies.append((time.perf_counter() - t0) * 1000)
+
+        hit = out["answer"] == row["expected"]
+        correct += hit
+        hallucination += out.get("hallucinated", False)
+        tokens += out.get("total_tokens", 0)
+
+        stat = by_type.setdefault(row["type"], [0, 0])
+        stat[0] += hit
+        stat[1] += 1
+
+    n = len(rows)
+    return {
+        "样本数": n,
+        "准确率": round(correct / n, 3),
+        "幻觉率": round(hallucination / n, 3),
+        "P95延迟ms": round(statistics.quantiles(latencies, n=20)[-1]),
+        "单次成本元": round(PRICE_PER_1K_TOKEN * tokens / n / 1000, 5),
+        "分类型准确率": {k: round(v[0] / v[1], 3) for k, v in by_type.items()},
+    }
+
+if __name__ == "__main__":
+    report = evaluate("eval_set_v1.jsonl", predict_fn=my_predictor)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    # 验收：准确率 ≥ 0.90 且 幻觉率 ≤ 0.02 且 P95 ≤ 3000ms
+    ok = report["准确率"] &gt;= 0.90 and report["幻觉率"] &lt;= 0.02 and report["P95延迟ms"] &lt;= 3000
+    print("验收结论：", "通过 ✅" if ok else "不通过 ❌，先看分类型准确率定位弱项")</code></pre>
+    <p>示例二：人工盲评量表（30–50 条即可），新旧方案混排、隐藏来源，评分者只按维度打分：</p>
+<pre><code># blind-review.md —— 人工盲评量表
+评分对象：每条结果按 1–5 分打（1=完全不可用，3=改改能用，5=直接可用）
+维度：
+  1. 事实正确：是否引用真实条款/数据，无编造（编造直接记 1 分并标注）
+  2. 格式合规：是否满足 JSON schema 与字数要求
+  3. 业务可用：能否免修改直接采纳
+输出：每条记录 {样本id, 方案A/B, 三项分, 备注}
+汇总：对比两方案的"可用率(≥4分)"与平均分；一致率 = 两人同分条数 / 总条数（目标 ≥ 0.7）</code></pre>
+    <div class="tip">💡 业务价值汇报模板："上线后日均 800 单全部机器首打，人工只处理 12% 置信度不足的单子，等效节省 7.5 人时/天；单日模型成本 23 元 ≈ 140 元人力成本，月净省约 2.6 万元。"</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：从历史数据抽样并构造边界样本，建成 50 条以上的评测集 JSONL（含 input、expected、type 三字段），冻结为 v1 并记录行数与哈希。</li>
+      <li><strong>任务 2</strong>：确定你场景的三类指标与目标线，写进验收标准；跑通示例一的评测脚本，输出首份报告。</li>
+      <li><strong>任务 3</strong>：做一次 30 条的盲评：新方案与现有做法混排，两人打分，算可用率与一致率，记录最差的 10 条原因。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：按价值换算公式算出月净收益与回本周期，写 5 行上线汇报（覆盖量、节省、成本、净收益、结论）。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://huggingface.co/docs/evaluate" target="_blank">Hugging Face Evaluate 文档</a> — <span class="desc">现成指标库（准确率、F1、ROUGE 等），快速搭起离线评测的第一版。</span></li>
+      <li>🛠 <a href="https://promptfoo.dev/" target="_blank">promptfoo</a> — <span class="desc">用 YAML 定义用例、批量跑评测并对比多版本提示词，回归测试很实用。</span></li>
+      <li>📖 <a href="https://github.com/openai/evals" target="_blank">OpenAI Evals 开源库</a> — <span class="desc">评测集组织方式与用例写法的参考实现，可复用其框架思路。</span></li>
+      <li>📖 <a href="https://github.com/EleutherAI/lm-evaluation-harness" target="_blank">lm-evaluation-harness</a> — <span class="desc">标准基准评测框架，想与公开榜单对比开源模型时使用。</span></li>
+      <li>📖 <a href="https://www.microsoft.com/en-us/ai/responsible-ai" target="_blank">Microsoft 负责任 AI</a> — <span class="desc">公平性、可靠性评估方法论，做评测维度设计时可借鉴其清单。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我的评测集有分层、有边界样本、未混入提示词示例或训练数据，并且冻结了版本吗？</li>
+      <li>我的验收标准是可判定的数字（准确率、幻觉率、延迟、单次成本），而不是"效果良好"吗？</li>
+      <li>我能说清离线评测、人工盲评、线上 A/B 各自能证明什么、不能证明什么吗？</li>
+      <li>我能把准确率换算成每月节省的工时与净收益，完成 3 分钟业务汇报吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s5-m1-3.html">← 上一节：AI 接口与业务数据打通</a>
+    <a href="s5-m2-1.html">下一节：微调场景判断（何时微调 vs RAG） →</a>
+  </div>
+
+</div>
+</body>
+</html>

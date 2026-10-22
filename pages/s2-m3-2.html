@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Embedding 向量化原理 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块三 · RAG（检索增强生成）/ <strong>Embedding 向量化原理</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>Embedding 向量化原理</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块三 · RAG（检索增强生成）</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够用自己的话解释 Embedding 是什么、它如何把"语义相似"变成"向量距离相近"。</li>
+      <li>能够正确选择并计算余弦相似度、点积、欧氏距离三种常见相似度度量，并说明各自的适用前提。</li>
+      <li>能够对比 OpenAI、BGE、M3E 等主流嵌入模型在维度、语言、成本上的差异，为项目做出合理选型。</li>
+      <li>能够完成"文本 → 向量 → 相似度检索"的最小闭环，并处理维度不一致、未归一化等常见错误。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：Embedding 的本质——用坐标表示语义</h3>
+    <p><strong>Embedding（嵌入/向量化）</strong>是把一段文本映射为一个固定长度的实数向量（如 1024 维）的技术。模型在海量语料上训练时学会了：语义相近的文本，映射后的向量在高维空间中距离也相近。于是"搜索"就变成了"<strong>在向量空间里找离查询向量最近的若干个向量</strong>"——这正是 RAG 检索环节的全部数学基础。</p>
+    <p>要注意三个特性：① <strong>定长</strong>——无论长短文本，输出维度相同（超出模型上限的文本会被截断，所以切分环节才那么重要）；② <strong>上下文相关</strong>——同一个词在不同句子里的向量不同（解决一词多义）；③ <strong>不可直接解释</strong>——每一维没有人类可读的含义，向量只在"与其他向量比较"时有意义。</p>
+
+    <h3>知识点 2：相似度度量——余弦、点积、欧氏距离</h3>
+    <p>拿到两个向量后，用什么衡量"像不像"？① <strong>余弦相似度（cosine）</strong>只看方向不看长度，取值 -1 到 1，是最常用的文本相似度指标；② <strong>点积（dot product）</strong>同时考虑方向和长度，若向量已归一化（L2 归一化后模长为 1），点积与余弦完全等价；③ <strong>欧氏距离（L2）</strong>是空间直线距离，值越小越相似。</p>
+    <p>常见坑：混用度量方式。很多嵌入模型输出的是<strong>已归一化向量</strong>（OpenAI 的 text-embedding-3 系列即如此），此时用点积和余弦结果一致，且点积计算更快；如果你的向量库默认用 L2 而你用余弦调参，排序结果可能不同。<strong>务必保证入库和查询用同一个模型、同一种度量方式。</strong></p>
+
+    <h3>知识点 3：模型选型——API 模型 vs 开源本地模型</h3>
+    <p>主流选择：① <strong>OpenAI text-embedding-3-small/large</strong>——效果好、按量付费（small 极便宜）、维度可裁剪（dimensions 参数可降到 512/256 维以省存储和加速），但数据要出境走 API；② <strong>BAAI BGE 系列</strong>（bge-large-zh-v1.5 等）——中文效果出色、可本地部署、数据不出域，配合 FlagEmbedding 库使用，查询侧建议在问题前加检索指令前缀；③ <strong>moka-ai/m3e</strong>——轻量中文模型，国内社区常用。选型看四个维度：<strong>语言匹配度（中文任务必须测中文）、维度（影响存储与检索速度）、单条文本上限、成本与部署条件</strong>。</p>
+    <p>评估嵌入模型不要凭感觉，参考 <strong>MTEB（Massive Text Embedding Benchmark）</strong>排行榜，但榜单基于英文/多语言基准，中文业务一定要用自己领域的真实问答对做小样本验证：把"问题→正确文档片段"作为正例，看召回率。</p>
+
+    <h3>知识点 4：向量化的实操要点</h3>
+    <p>生产上要把"生成向量"做成可复用的服务：批量调用（OpenAI 支持一条请求传多个文本，显著提升吞吐）、失败重试、缓存（相同文本不重复计费）、以及<strong>版本管理——换模型等于全部重算</strong>，向量库里必须记录模型名与版本，新旧向量不可混存比较。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：用 OpenAI API 计算一组中文句子的余弦相似度，直观感受"语义相近 → 向量相近"：</p>
+<pre><code># pip install openai numpy
+import os
+import numpy as np
+from openai import OpenAI
+
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+texts = [
+    "如何重置登录密码？",
+    "忘记密码了怎么办？",
+    "今天的天气怎么样？",
+]
+resp = client.embeddings.create(model="text-embedding-3-small", input=texts)
+vecs = np.array([d.embedding for d in resp.data])   # 已归一化，可直接点积
+
+print("问题1 vs 问题2（近义）：", float(vecs[0] @ vecs[1]))
+print("问题1 vs 问题3（无关）：", float(vecs[0] @ vecs[2]))
+# 典型输出：近义句 0.8+，无关句 0.0 上下，差距非常明显</code></pre>
+
+    <p>示例二：本地部署 BGE 中文模型，实现离线向量化（数据不出内网的方案）：</p>
+<pre><code># pip install -U FlagEmbedding
+from FlagEmbedding import BGEM3FlagModel
+
+model = BGEM3FlagModel("BAAI/bge-large-zh-v1", use_fp16=True)  # 1024 维
+sentences = ["如何重置登录密码？", "忘记密码了怎么办？", "今天股市行情如何？"]
+embs = model.encode(sentences)["dense_vecs"]
+
+import numpy as np
+sim = embs @ embs.T          # 批量两两相似度矩阵
+print(np.round(sim, 3))
+# 注意：换模型或换维度必须全量重算已有向量，不可混用</code></pre>
+
+    <div class="tip">💡 提示：查询侧使用 BGE 时，官方建议给查询文本加上指令前缀（如"为这个句子生成表示以用于检索相关文章："），而文档侧不加，可以明显提升召回效果。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：任选一种嵌入模型，把 10 组"近义句/无关句"向量化，计算相似度并验证近义句得分明显高于无关句，记录得分区间。</li>
+      <li><strong>任务 2</strong>：把 OpenAI 与 BGE（或 M3E）在你的 5 个真实业务问题上各跑一遍，用"正确文档片段是否进入 Top-3"做简单评测，写出选型结论。</li>
+      <li><strong>任务 3</strong>：实现批量向量化函数（每批 100 条），加入指数退避重试与本地缓存，统计加速比。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：验证 text-embedding-3 的 dimensions 参数：降到 256 维后相似度排序与 1536 维的重合率是多少，评估降维的性价比。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://platform.openai.com/docs/guides/embeddings" target="_blank">OpenAI Embeddings 官方指南</a> — <span class="desc">API 用法、模型对比与定价，以及 dimensions 降维参数的说明。</span></li>
+      <li>📖 <a href="https://huggingface.co/BAAI/bge-large-zh-v1.5" target="_blank">BGE-large-zh-v1.5 模型卡</a> — <span class="desc">中文嵌入模型的使用方式、检索指令前缀建议与评测结果。</span></li>
+      <li>📖 <a href="https://www.sbert.net/" target="_blank">Sentence-Transformers 官方文档</a> — <span class="desc">本地嵌入模型的事实标准库，含训练与微调教程。</span></li>
+      <li>🛠 <a href="https://huggingface.co/spaces/mteb/leaderboard" target="_blank">MTEB 排行榜</a> — <span class="desc">主流嵌入模型的权威评测榜单，选型前先看语言与任务维度。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能不看资料解释"为什么语义相近的文本向量也相近"吗？</li>
+      <li>我能说出余弦相似度、点积、欧氏距离的区别以及何时可以互换吗？</li>
+      <li>我能独立完成"文本→向量→相似度计算"的完整代码并得到合理结果吗？</li>
+      <li>我能根据数据合规、语言、成本三个约束为项目选出合适的嵌入模型吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m3-1.html">← 上一节：文档加载与切分策略</a>
+    <a href="s2-m3-3.html">下一节：向量数据库使用（Milvus / Chroma / FAISS） →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>前端基础（HTML/CSS/JS、Streamlit） · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块一 · Python 全栈 / <strong>前端基础（HTML/CSS/JS、Streamlit）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>前端基础（HTML/CSS/JS、Streamlit）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块一 · Python 全栈</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够用语义化的 <strong>HTML</strong> 标签搭出结构清晰的页面（标题层级、表单、列表），不靠一堆无语义的 div。</li>
+      <li>能够用 <strong>CSS</strong> 选择器、盒模型与 flex 布局完成常见排版，并理解为什么样式要「类选择器优先、少用 !important」。</li>
+      <li>能够用原生 <strong>JavaScript</strong> 完成 DOM 操作、事件绑定与 fetch 调接口，看懂前后端数据交互的最小闭环。</li>
+      <li>能够用 <strong>Streamlit</strong> 在纯 Python 环境下快速做出带交互的数据/智能体演示页面，理解其「每次交互都重跑脚本」的运行模型。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：HTML——用语义标签描述内容结构</h3>
+    <p>HTML 是<strong>描述结构的标记语言</strong>，不是编程语言。骨架固定为 doctype、head（字符集、viewport、title、引入 css/js）、body。常用语义标签：<strong>h1~h6</strong> 表示标题层级（一页只应有一个 h1）、<strong>p / ul / ol / a / img</strong> 表示内容、<strong>header / nav / main / section / footer</strong> 划分区块、<strong>form / label / input / button</strong> 收集用户输入。给 label 配 <strong>for</strong> 与输入框 id 关联，能提升可访问性并扩大点击区域。表单提交方式要分清：<strong>GET</strong> 参数拼在 URL、<strong>POST</strong> 放请求体。</p>
+
+    <h3>知识点 2：CSS——选择器、盒模型与 flex 布局</h3>
+    <p>CSS 规则由「选择器 + 声明块」组成，优先级从高到低大致是：行内 style &gt; id &gt; 类 &gt; 标签；相同权重看<strong>就近覆盖</strong>，!important 只在万不得已时用，否则样式难以维护。每个元素都是一个盒子：<strong>content + padding + border + margin</strong>，默认 box-sizing: content-box 时 width 不含 padding，实践中普遍写 <strong>*, *::before, *::after { box-sizing: border-box; }</strong> 让 width 即总宽，避免加边框就溢出。</p>
+    <p>现代排版主力是 <strong>display: flex</strong>：容器设 flex-direction（row/column）、justify-content（主轴分布）、align-items（交叉轴对齐），子项用 flex: 1 均分空间；需要多行换行加 flex-wrap。做手机适配常配 <strong>@media (max-width: 768px)</strong> 断点改布局，配合 max-width: 1200px + margin: auto 居中容器。</p>
+
+    <h3>知识点 3：JavaScript——DOM、事件与 fetch</h3>
+    <p><strong>DOM</strong> 把文档变成可编程的节点树，用 document.querySelector 选中元素、textContent/innerHTML 改内容、classList.add 改样式；<strong>事件</strong>用 addEventListener('click', handler) 绑定，避免行内 onclick，因为同一事件可绑多个监听且易分离结构与行为。异步请求用 <strong>fetch(url)</strong>，它返回 Promise：await fetch 拿到 Response 后还要 <strong>await resp.json()</strong> 才是数据；注意 fetch 默认不为 4xx/5xx 抛错，需手动判断 resp.ok。前端调后端还必须处理 <strong>CORS</strong>：跨域时后端要允许来源，或开发期用 Vite 代理转发。</p>
+
+    <h3>知识点 4：Streamlit——纯 Python 的交互式应用</h3>
+    <p><strong>Streamlit</strong> 让你用几十行 Python 生成带组件的 Web 页面，适合做智能体 Demo、数据看板。核心心智模型：<strong>脚本从头到尾顺序执行</strong>——用户每点一次按钮，整个脚本重跑一遍，因此所有输入组件都有返回值（st.text_input 返回当前值），要保存跨次运行的变量必须放进 <strong>st.session_state</strong>。重跑意味着昂贵操作会被重复执行，用 <strong>@st.cache_data</strong>（缓存数据）/ <strong>@st.cache_resource</strong>（缓存模型、连接）避免每次重新加载大模型。st.sidebar 放参数区，st.columns 做分栏，st.form + st.form_submit_button 让多个输入「提交一次才触发重跑」，能显著提升表单类页面体验。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：一个完整的最小页面，包含语义结构、flex 布局和用 JS 调后端接口：</p>
+<pre><code>&lt;!DOCTYPE html&gt;
+&lt;html lang="zh-CN"&gt;
+&lt;head&gt;
+  &lt;meta charset="UTF-8"&gt;
+  &lt;title&gt;智能体问答&lt;/title&gt;
+  &lt;style&gt;
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; }
+    main { max-width: 720px; margin: 0 auto; padding: 24px; }
+    .row { display: flex; gap: 8px; }
+    .row input { flex: 1; padding: 8px; }
+    button { padding: 8px 16px; }
+    #answer { margin-top: 16px; padding: 12px; background: #f5f5f5; }
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;main&gt;
+    &lt;h1&gt;智能体问答&lt;/h1&gt;
+    &lt;form id="ask-form"&gt;
+      &lt;div class="row"&gt;
+        &lt;label for="q" class="sr-only"&gt;问题&lt;/label&gt;
+        &lt;input id="q" name="q" placeholder="输入你的问题" required&gt;
+        &lt;button type="submit"&gt;提问&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/form&gt;
+    &lt;div id="answer" hidden&gt;&lt;/div&gt;
+  &lt;/main&gt;
+  &lt;script&gt;
+    const form = document.getElementById('ask-form');
+    const box = document.getElementById('answer');
+    form.addEventListener('submit', async (e) =&gt; {
+      e.preventDefault();                       // 阻止表单默认整页刷新
+      const q = document.getElementById('q').value;
+      box.hidden = false;
+      box.textContent = '思考中…';
+      try {
+        const resp = await fetch('/api/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: q }),
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        box.textContent = data.answer;
+      } catch (err) {
+        box.textContent = '请求失败：' + err.message;
+      }
+    });
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+    <p>示例二：带会话状态与缓存的 Streamlit 智能体页面，保存为 app.py 后运行 <strong>streamlit run app.py</strong>：</p>
+<pre><code>import time
+import streamlit as st
+
+st.set_page_config(page_title="智能体演示", layout="centered")
+st.title("🤖 智能体问答演示")
+
+# 缓存昂贵资源：模型只加载一次，不随脚本重跑而重复加载
+@st.cache_resource
+def load_model():
+    time.sleep(1)                # 模拟加载耗时
+    return {"name": "demo-model"}
+
+model = load_model()
+st.caption(f"当前模型：{model['name']}")
+
+# 用 form 让多个输入提交一次才触发重跑，避免每敲一个字就刷新
+with st.form("chat"):
+    question = st.text_input("你的问题", max_chars=200)
+    temperature = st.slider("温度", 0.0, 1.0, 0.3)
+    submitted = st.form_submit_button("发送")
+
+if submitted and question:
+    # session_state 跨"重跑"保存对话历史
+    history = st.session_state.setdefault("history", [])
+    history.append(("user", question))
+    answer = f"（模拟回答，温度={temperature}）你问的是：{question}"
+    history.append(("assistant", answer))
+    for role, text in history:
+        st.chat_message(role).write(text)
+</code></pre>
+    <div class="tip">💡 提示：分不清「结构、样式、行为」时就问自己——这行代码删掉页面还能读懂吗（HTML）？它只影响外观吗（CSS）？它在响应事件吗（JS）？三层分离是最重要也最容易被忽视的前端纪律。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：写一个个人主页 HTML：包含 h1 标题、简介段落、技能 ul 列表和一个「联系我」的表单（姓名输入框 + 提交按钮），用浏览器打开检查标题层级与 label 关联是否正确。</li>
+      <li><strong>任务 2</strong>：给任务 1 的页面加 CSS：border-box 全局重置、内容区 max-width 居中、技能列表用 flex 换行排成标签墙，并在 768px 断点下改成单列。</li>
+      <li><strong>任务 3</strong>：用 JS 实现「点击按钮显示/隐藏答案区」，再用 fetch 调用一个公开接口（如 https://api.github.com/repos/python/cpython）并把返回的 name、stargazers_count 渲染到页面，处理好失败分支。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：用 Streamlit 做一个「提示词调参台」：左侧边栏放温度、模型下拉框，主区放多轮对话，用 st.session_state 保存历史、@st.cache_data 缓存提示词模板，观察重跑机制。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://developer.mozilla.org/zh-CN/docs/Web/HTML" target="_blank">MDN HTML 指南（中文）</a> — <span class="desc">语义标签与表单的权威教程，附可交互示例，边读边改最有效。</span></li>
+      <li>📖 <a href="https://developer.mozilla.org/zh-CN/docs/Web/CSS" target="_blank">MDN CSS 指南（中文）</a> — <span class="desc">选择器、盒模型、flex 布局文档，遇到布局问题优先查这里。</span></li>
+      <li>📖 <a href="https://developer.mozilla.org/zh-CN/docs/Web/JavaScript" target="_blank">MDN JavaScript 指南（中文）</a> — <span class="desc">DOM 事件、async/await、fetch 的系统教程，含大量可运行片段。</span></li>
+      <li>📖 <a href="https://docs.streamlit.io" target="_blank">Streamlit 官方文档</a> — <span class="desc">组件 API 速查与「运行模型/session_state/cache」概念详解，做 Demo 必备。</span></li>
+      <li>🛠 <a href="https://streamlit.io" target="_blank">Streamlit 官网</a> — <span class="desc">一键部署入口与官方示例库（Gallery），可直接复制别人的应用源码学习。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能不查资料写出 HTML 骨架 + flex 居中布局 + 一个事件监听的完整小页面吗？</li>
+      <li>我能解释 box-sizing: border-box 解决了什么问题、!important 为什么不该乱用吗？</li>
+      <li>我能说清 fetch 的 response 为什么要 .json()、为什么 404 不会自动进 catch 吗？</li>
+      <li>我能解释 Streamlit「每点一次按钮脚本重跑一次」的含义，并用 session_state 与 cache 区分两类数据吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m1-3.html">← 上一节：包管理与工程化项目结构</a>
+    <a href="s2-m1-5.html">下一节：数据库操作（SQL / ORM） →</a>
+  </div>
+
+</div>
+</body>
+</html>

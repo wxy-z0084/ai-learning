@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LCEL 声明式链路编排 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块四 · LangChain / <strong>LCEL 声明式链路编排</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>LCEL 声明式链路编排</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块四 · LangChain</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够解释 LCEL（LangChain Expression Language）声明式编排相比手写命令式代码的优势。</li>
+      <li>能够读懂由 <code>|</code> 组成的多段管道，说明每一段的输入输出类型如何衔接。</li>
+      <li>能够使用 <strong>RunnableParallel、RunnableLambda、RunnablePassthrough</strong> 构建分支与并行结构。</li>
+      <li>能够为链路加上 <strong>流式输出、批处理、重试与降级（fallbacks）</strong>，并把一个 RAG 系统完整改写成 LCEL。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：LCEL 是什么，为什么用它</h3>
+    <p>LCEL 是 LangChain 的<strong>声明式链路编排语法</strong>：用 <code>|</code>（管道符）把多个组件串成一条链，例如 <code>prompt | model | parser</code>。它与你手写 <code>resp = model.invoke(prompt.format(...)); return parser.parse(resp)</code> 的区别在于：LCEL 从第一天起就免费获得<strong>流式（stream）、批量（batch）、异步（ainvoke）、重试（with_retry）、降级（with_fallbacks）、回调追踪</strong>等能力——这些若手工实现，每一项都要写几十行胶水代码。</p>
+    <p>被组合的每个组件都实现了统一的 <strong>Runnable 接口</strong>，暴露同名方法：<code>invoke</code>（单次）、<code>batch</code>（批量）、<code>stream</code>（流式）、<code>astream</code>（异步流式）。因此"整条链"和"链里的一步"用法完全一致，可以随意嵌套组合。</p>
+
+    <h3>知识点 2：组合原语与类型衔接规则</h3>
+    <p>① <strong>管道 <code>|</code></strong>：前一步输出作为后一步输入，核心规则是<strong>类型必须衔接</strong>（如 prompt 输出 ChatPromptValue，正好是 model 的输入）；② <strong>RunnableParallel</strong>：同一份输入分发给多个分支并行执行，输出一个字典——典型用法是"一份输入同时做检索和改写"；③ <strong>RunnableLambda</strong>：把普通函数（含 lambda）包成 Runnable，用于格式化、后处理等胶水逻辑；④ <strong>RunnablePassthrough</strong>：原样透传输入，常用于"字典里只替换一个键、其余保留"的场景；⑤ <strong>RunnableBranch</strong>：按条件走不同分支。当管道某段接收"字典"输入时，字典的每个键会<strong>各自独立地</strong>流经对应分支——这是 RAG 链最常用的写法（一边检索、一边透传问题）。</p>
+
+    <h3>知识点 3：生产级能力——流式、重试与降级</h3>
+    <p><strong>流式</strong>：对链调用 <code>.stream()</code> 即可逐 token 拿到输出，配合前端打字机效果，把"首字延迟"从十几秒降到几百毫秒，是 LLM 应用体验的分水岭。<strong>重试</strong>：<code>chain.with_retry(stop_after_attempt=3)</code> 自动对限流/超时做指数退避。<strong>降级</strong>：<code>chain.with_fallbacks([backup_chain])</code>——主模型挂了自动切备用模型（如 gpt-4o → gpt-4o-mini → 本地模型），是可用性的关键保险。此外 <code>model.bind(temperature=0, max_tokens=500)</code> 可在不改模板的情况下给模型绑定额外参数。</p>
+
+    <h3>知识点 4：从 LLMChain 到 LCEL 的迁移思路</h3>
+    <p>旧式 <code>LLMChain(llm, prompt, memory)</code> 的三要素在 LCEL 中一一对应：<code>prompt | llm | parser</code>；memory 则由上一节的 RunnableWithMessageHistory 接管。迁移口诀：<strong>"链改管道、内存改历史、回调改 config"</strong>。写好一条 RAG 管道后，它既是 API 服务的 handler，也能直接被 Agent 当作工具调用（<code>@tool</code> 里 invoke 链即可），复用性极高。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：用 LCEL 重写一个完整的 RAG 管道——检索、格式化、生成、引用一步到位：</p>
+<pre><code># pip install langchain langchain-openai langchain-chroma
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_chroma import Chroma
+
+retriever = Chroma(persist_directory="./chroma_demo",
+                   collection_name="kb_demo",
+                   embedding_function=OpenAIEmbeddings()).as_retriever(search_kwargs={"k": 4})
+
+prompt = ChatPromptTemplate.from_template(
+    "仅根据以下资料回答问题，答案末尾用[来源]标注引用的页码；"
+    "资料不足时回答'未找到相关信息'。\n\n资料：\n{context}\n\n问题：{question}"
+)
+
+def format_docs(docs):
+    return "\n\n".join(f"[第{d.metadata.get('page', '?')}页] {d.page_content}" for d in docs)
+
+rag_chain = (
+    # 字典的两个键各自走一条分支：context 由检索器产出，question 原样透传
+    {"context": retriever | format_docs, "question": RunnablePassthrough()}
+    | prompt
+    | ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    | StrOutputParser()
+)
+
+# 流式输出：边生成边返回，首字延迟大幅下降
+for token in rag_chain.stream("发票可以开增值税专用发票吗？"):
+    print(token, end="", flush=True)</code></pre>
+
+    <p>示例二：并行分支 + 普通函数 + 重试与降级，组合出一条生产可用的链：</p>
+<pre><code>from langchain_core.runnables import RunnableParallel, RunnableLambda
+
+# 同一份输入并行跑两路：关键词抽取（本地函数）与模型摘要
+pipeline = RunnableParallel(
+    keywords=RunnableLambda(lambda q: [w for w in q.split() if len(w) &gt;= 2][:5]),
+    summary=(prompt | model | StrOutputParser()),
+)
+
+safe = (prompt | model | StrOutputParser()) \
+    .with_retry(stop_after_attempt=3) \
+    .with_fallbacks([prompt | backup_model | StrOutputParser()])
+
+result = pipeline.invoke("帮我总结一下这个季度的销售数据")
+print(result["keywords"], result["summary"][:80])
+# 批量：10 个问题一次并发处理
+answers = safe.batch(["问题A", "问题B", "问题C"])</code></pre>
+
+    <div class="tip">💡 提示：调试 LCEL 链时，用 <code>chain.get_graph().print_ascii()</code> 可以直接打印链路结构图；配合 <code>config={"run_name": "my-rag"}</code> 在 LangSmith 里追踪每一步耗时与输入输出。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：把模块三完成的 RAG 系统改写成示例一那样的 LCEL 单链，要求带"资料不足拒答"与来源标注，并用 stream 输出。</li>
+      <li><strong>任务 2</strong>：用 RunnableParallel 实现"一次输入同时产出：答案 + 3 个关键词 + 结构化分类（with_structured_output）"，测量并行相比串行的耗时差异。</li>
+      <li><strong>任务 3</strong>：给你的主链加上 with_retry 与 with_fallbacks，手工模拟主模型超时，验证降级链路能正常接管。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：用 <code>chain.batch(inputs, config={"max_concurrency": 5})</code> 控制并发度批量处理 50 个问题，统计吞吐与限流报错次数，找到合适的并发值。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://python.langchain.com/v0.2/docs/lcel/" target="_blank">LCEL 官方文档</a> — <span class="desc">语法、Runnable 接口与常见模式的权威说明，本节必读。</span></li>
+      <li>📖 <a href="https://python.langchain.com/v0.2/docs/how_to/streaming/" target="_blank">流式输出 How-to</a> — <span class="desc">stream/astream 的用法与事件粒度控制，做对话界面必看。</span></li>
+      <li>📖 <a href="https://python.langchain.com/v0.2/docs/how_to/fallbacks/" target="_blank">降级（Fallbacks）How-to</a> — <span class="desc">链路容错的标准姿势，含超时、解析失败等多种降级场景。</span></li>
+      <li>📖 <a href="https://python.langchain.com/v0.2/docs/versions/v0_2/" target="_blank">LangChain v0.2 版本说明</a> — <span class="desc">0.2 的新特性与从旧版 Chain 迁移到 LCEL 的注意事项。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能解释 LCEL 相比手写调用代码在流式、容错上的优势吗？</li>
+      <li>我能读懂一条多段 LCEL 链，并说出每一段的输入输出类型吗？</li>
+      <li>我能用 RunnableParallel + RunnablePassthrough 写出"多分支取数、单入口汇总"的结构吗？</li>
+      <li>我的生产链路是否配置了流式输出、重试和至少一条降级链？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m4-3.html">← 上一节：对话记忆（Memory）管理</a>
+    <a href="s2-m4-5.html">下一节：LangGraph 多步智能体工作流 →</a>
+  </div>
+
+</div>
+</body>
+</html>

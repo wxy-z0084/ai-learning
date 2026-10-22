@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpringBoot 自动配置与 Starter · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块一 · Java / SpringBoot / <strong>SpringBoot 自动配置与 Starter</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>SpringBoot 自动配置与 Starter</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块一 · Java / SpringBoot</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够解释"<strong>约定优于配置</strong>"，说明 Spring Boot 自动配置如何在启动时替你装配 Bean。</li>
+      <li>能够读懂自动配置类的注册与条件机制（<strong>@AutoConfiguration、@ConditionalOn*、@EnableConfigurationProperties</strong>）。</li>
+      <li>能够独立开发一个<strong>自定义 Starter</strong>：配置属性类 + 自动配置类 + 注册文件 + 使用方引入。</li>
+      <li>能够用日志或 <strong>/actuator/env</strong> 等手段排查"某个 Bean 为什么没生效/生效了"。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：Spring Boot 为什么"开箱即用"</h3>
+    <p>传统 Spring 项目要写大量 XML 或 @Configuration 来装配数据源、MVC、事务管理器。Spring Boot 的思路是<strong>约定优于配置</strong>：只要 classpath 上存在某个类或某项配置存在，就<strong>自动替你注册好对应的 Bean</strong>，开发者不写任何配置也能跑；想改默认行为，用 application.yml 或 @Bean 覆盖即可。入口的 <strong>@SpringBootApplication</strong> 实际是三个注解的组合：<strong>@SpringBootConfiguration</strong>（配置类）、<strong>@EnableAutoConfiguration</strong>（开启自动配置）、<strong>@ComponentScan</strong>（扫描本包及子包的组件）。</p>
+
+    <h3>知识点 2：自动配置的执行机制</h3>
+    <p><strong>@EnableAutoConfiguration</strong> 通过 <strong>AutoConfiguration.imports</strong>（Spring Boot 3.x，旧版是 spring.factories）拿到全部候选自动配置类，然后逐个应用<strong>条件注解</strong>决定是否生效：<strong>@ConditionalOnClass</strong>（classpath 存在指定类）、<strong>@ConditionalOnMissingBean</strong>（容器里还没有该 Bean，这是"用户可覆盖默认"的关键）、<strong>@ConditionalOnProperty</strong>（配置项满足条件，可用 matchIfMissing 设默认值）、<strong>@ConditionalOnWebApplication</strong>。理解 <strong>@ConditionalOnMissingBean</strong> 就理解了"为什么我自己定义一个 Bean 就能覆盖 Boot 默认的"。排查工具：开启 <strong>debug=true</strong> 输出条件评估报告（Conditional evaluation report），或用 Actuator 的 <strong>/actuator/beans</strong> 查看 Bean 来源。</p>
+
+    <h3>知识点 3：自定义 Starter 的标准结构</h3>
+    <p>Starter 的本质是"<strong>依赖 + 自动配置</strong>"的打包约定，便于把公司内部组件（如限流器、统一鉴权、模型客户端）复用到多个服务。推荐拆两个模块：<strong>xxx-spring-boot-autoconfigure</strong>（放配置属性类与自动配置类）与 <strong>xxx-spring-boot-starter</strong>（只做依赖聚合，引入 autoconfigure 与必要的传递依赖）。开发三步：① 写 <strong>@ConfigurationProperties</strong> 配置属性类（前缀统一、字段有默认值）；② 写 <strong>@AutoConfiguration</strong> 类，用 @ConditionalOnMissingBean 注册组件；③ 在 <strong>META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports</strong> 中登记类全名。使用方只需引入 starter 依赖并按前缀配置即可生效。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：配置属性类与自动配置类（一个简单的限流组件 starter）：</p>
+<pre><code>// KbRateProperties.java
+@ConfigurationProperties(prefix = "kb.rate")
+public class KbRateProperties {
+    /** 每秒允许的请求数，默认 5 */
+    private double permitPerSecond = 10;
+    /** 是否启用，默认 true */
+    private boolean enabled = true;
+
+    // 省略 getter / setter
+}
+
+// RateLimiterAutoConfiguration.java
+@AutoConfiguration
+@EnableConfigurationProperties(KbRateProperties.class)
+@ConditionalOnProperty(prefix = "kb.rate", name = "enabled",
+        havingValue = "true", matchIfMissing = true)
+public class RateLimiterAutoConfiguration {
+
+    @Bean
+    @ConditionalOnMissingBean   // 用户自己定义 RateLimiter 时此处让位
+    public RateLimiter rateLimiter(KbRateProperties props) {
+        return new RateLimiter(props.getPermitPerSecond());
+    }
+}
+</code></pre>
+    <p>示例二：注册文件与使用方配置——没有这两步，上面的类永远不会被加载：</p>
+<pre><code># kb-rate-spring-boot-autoconfigure/src/main/resources/
+#   META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports
+com.example.ratelimit.RateLimiterAutoConfiguration
+</code></pre>
+<pre><code># 使用方 application.yml（starter 已在 classpath）
+kb:
+  rate:
+    permit-per-second: 20
+    enabled: true
+</code></pre>
+    <div class="tip">💡 提示：写 Starter 时命名要带组织前缀（如 kb-rate）避免与生态冲突；配置属性类加 @Validated 可在启动期校验非法值；上线前用 debug=true 检查你的自动配置类是否出现在条件评估报告的 positive matches 中。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：在现有项目中开启 debug=true，找到条件评估报告，指出 spring-boot-starter-web 触发了哪些自动配置类。</li>
+      <li><strong>任务 2</strong>：自定义一个 Bean（如自定义 ObjectMapper），验证它如何覆盖 Boot 默认配置，并解释 @ConditionalOnMissingBean 的作用。</li>
+      <li><strong>任务 3</strong>：按本节结构开发 kb-rate-spring-boot-starter（autoconfigure + starter 两模块），在另一个工程中引入并验证限流生效。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：为 starter 增加 @Validated 与校验注解（permitPerSecond 必须大于 0），填入非法值验证启动失败并给出可读的报错。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://spring.io/projects/spring-boot" target="_blank">Spring Boot 官网</a> — <span class="desc">版本说明、功能特性与学习资源的官方入口。</span></li>
+      <li>📖 <a href="https://docs.spring.io/spring-boot/reference/index.html" target="_blank">Spring Boot 官方参考文档</a> — <span class="desc">使用与原理的第一手资料，遇到行为疑惑先查这里。</span></li>
+      <li>📖 <a href="https://docs.spring.io/spring-boot/reference/features/developing-auto-configuration.html" target="_blank">开发自定义自动配置（官方章节）</a> — <span class="desc">条件注解、注册文件与 Starter 结构的权威步骤说明。</span></li>
+      <li>🛠 <a href="https://start.spring.io/" target="_blank">Spring Initializr</a> — <span class="desc">快速生成含 Lombok、Configuration Processor 的工程骨架。</span></li>
+      <li>📖 <a href="https://github.com/spring-projects/spring-boot" target="_blank">Spring Boot 源码仓库</a> — <span class="desc">读自动配置类源码的最佳材料，如 DataSourceAutoConfiguration。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说出 @SpringBootApplication 由哪几个注解组成、各自做什么吗？</li>
+      <li>我能解释条件注解家族的作用，并用 debug 报告验证一个 Bean 的生效条件吗？</li>
+      <li>我能默写出 Starter 的三件套：属性类、自动配置类、imports 注册文件吗？</li>
+      <li>为什么 @ConditionalOnMissingBean 是"用户可覆盖默认配置"的关键？我能举例说明吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m1-4.html">← 上一节：MyBatis / JPA 数据访问</a>
+    <a href="s3-m2-1.html">下一节：分层架构设计（Controller-Service-DAO） →</a>
+  </div>
+
+</div>
+</body>
+</html>

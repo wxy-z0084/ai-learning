@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分层架构设计（Controller-Service-DAO）· AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块二 · 企业级单体项目开发 / <strong>分层架构设计（Controller-Service-DAO）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>分层架构设计（Controller-Service-DAO）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块二 · 企业级单体项目开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>学完本节后，你能够准确说出 Controller、Service、DAO 三层各自的职责边界与<strong>单向依赖</strong>规则，并指出常见越层调用问题。</li>
+      <li>你能够为一个新业务模块设计规范的包结构，并明确 DTO、Entity、VO 三类对象的转换链路。</li>
+      <li>你能够独立写出一个带事务的增删改查接口的三层代码，保证<strong>事务边界落在 Service 层</strong>。</li>
+      <li>你能够借助 ArchUnit 或 Code Review 清单，检查并纠正项目中的分层违规。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：为什么要分层，依赖只能单向</h3>
+    <p>分层的本质是<strong>按职责切分复杂度</strong>：请求解析、业务规则、数据存取是三种完全不同的变化频率，把它们混在一个类里，改任何一处都要重新理解全部代码。企业级单体项目通常采用三层架构：<strong>Controller（表现层）</strong>负责接收参数、校验、调用服务、组织返回值；<strong>Service（业务层）</strong>承载业务规则与事务边界；<strong>DAO（持久层，也叫 Mapper）</strong>只负责与数据库打交道。</p>
+    <p>依赖方向必须是<strong>单向的：Controller → Service → DAO</strong>，反向依赖（DAO 调 Service、Controller 直接调 Mapper）几乎一定是设计错误。判断口诀是：Controller 里不写 if 业务分支，Service 里不出现 HttpServletRequest，DAO 里不出现业务名词之外的事务注解。</p>
+
+    <h3>知识点 2：三层职责详解与对象转换</h3>
+    <p>Controller 层的代码应当"薄"：接收 DTO（Data Transfer Object，接口入参），用 Bean Validation 注解完成参数校验，调用一个 Service 方法，把返回的 Entity 或领域对象转换为 VO（View Object，接口出参）后包装返回。不要在 Controller 里注入 Mapper，也不要在 Controller 上加 <strong>@Transactional</strong>——事务应该由 Service 方法的完整业务动作来界定，一个 Service 方法对应一个原子业务操作。</p>
+    <p>Service 层是唯一可以写业务分支和编排多个 DAO 调用的地方。返回给前端的对象尽量不要直接是数据库 Entity：Entity 加了字段（如内部备注）就会被顺手序列化出去，造成<strong>越权泄露</strong>。规范做法是 <strong>DTO → Entity → VO</strong> 三段转换，可用 MapStruct 或 BeanUtils 完成，字段多时建议显式映射以便日后审计。</p>
+
+    <h3>知识点 3：包结构组织与常见坑</h3>
+    <p>常见组织方式是按层分包（controller / service / mapper / domain），团队规模大时也可按业务模块分包再在模块内分层，两种方式各有取舍，但<strong>同一个项目只用一种</strong>。典型坑包括：把 MyBatis 的分页查询直接塞进 Controller（数据访问逻辑泄漏到表现层）、Service 之间互相循环依赖（通常说明缺少第三个编排 Service 或职责划分不清）、一个几百行的"上帝 Service"（应按子领域拆分）。此外注意 <strong>DTO 与 Entity 同名同包</strong>导致 import 混乱，是新手最常犯的低级错误。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>下面是一个订单模块的标准三层代码，可直接作为新项目的骨架参考：</p>
+<pre><code>// 1) 实体：与数据库表 t_order 一一对应
+@Data
+@TableName("t_order")
+public class Order {
+    @TableId(type = IdType.ASSIGN_ID)
+    private Long id;
+    private Long userId;
+    private BigDecimal amount;
+    private Integer status;      // 0 待支付 1 已支付
+    private LocalDateTime createTime;
+}
+
+// 2) DAO：只做数据访问，继承 MyBatis-Plus 的 BaseMapper 即可
+public interface OrderMapper extends BaseMapper&lt;Order&gt; {
+}
+
+// 3) Service：业务逻辑 + 事务边界
+@Service
+@RequiredArgsConstructor
+public class OrderService {
+    private final OrderMapper orderMapper;
+
+    public Order detail(Long id) {
+        Order order = orderMapper.selectById(id);
+        if (order == null) {
+            throw new BizException("订单不存在:" + id);
+        }
+        return order;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Long create(OrderCreateDTO dto) {
+        Order order = new Order();
+        BeanUtils.copyProperties(dto, order);
+        order.setStatus(0);
+        order.setCreateTime(LocalDateTime.now());
+        orderMapper.insert(order);
+        return order.getId();
+    }
+}
+
+// 4) Controller：只做参数校验、调用、出参转换
+@RestController
+@RequestMapping("/orders")
+@RequiredArgsConstructor
+public class OrderController {
+    private final OrderService orderService;
+
+    @PostMapping
+    public R&lt;Long&gt; create(@Valid @RequestBody OrderCreateDTO dto) {
+        return R.ok(orderService.create(dto));
+    }
+
+    @GetMapping("/{id}")
+    public R&lt;OrderVO&gt; detail(@PathVariable Long id) {
+        OrderVO vo = new OrderVO();
+        BeanUtils.copyProperties(orderService.detail(id), vo);
+        return R.ok(vo);
+    }
+}
+</code></pre>
+    <p>对应的包结构与依赖方向如下（上层依赖下层，禁止反向）：</p>
+<pre><code>com.example.mall
+├── controller      // 参数接收、校验、DTO/VO 转换
+├── service         // 业务逻辑、事务边界
+│   └── impl
+├── mapper          // DAO：只写 SQL 与数据存取
+├── domain
+│   ├── entity      // 数据库实体
+│   ├── dto         // 接口入参
+│   └── vo          // 接口出参
+├── common          // 统一响应 R、全局异常、常量
+└── config          // 配置类
+</code></pre>
+    <div class="tip">💡 提示：评审时可先搜代码里的 import——Controller 的 import 列表中若出现 Mapper、SqlSession，或 DAO 中出现 HttpServletRequest，即可判定为分层违规。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：按上面的包结构新建一个 Spring Boot 工程骨架，把 common、config、domain 目录和统一响应类建好，做到新模块复制即用。</li>
+      <li><strong>任务 2</strong>：实现"文章管理"的增删改查接口（含分页查询），要求 Controller 不注入任何 Mapper，Service 方法上正确标注事务。</li>
+      <li><strong>任务 3</strong>：为任务 2 补上 DTO 与 VO 两个对象，字段做差异化设计（如 VO 多返回作者昵称、DTO 不允许前端传 status），并说明每个字段差异的原因。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：引入 ArchUnit 编写一条架构测试，断言 controller 包不得依赖 mapper 包，让分层规则在 CI 中自动失败。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://spring.io/projects/spring-boot" target="_blank">Spring Boot 官方项目页</a> — <span class="desc">工程约定与自动配置的权威说明，做分层前先跑通官方 Quick Start</span></li>
+      <li>📖 <a href="https://mybatis.plus" target="_blank">MyBatis-Plus 官方文档</a> — <span class="desc">国内最常用的持久层框架，DAO 层的 CRUD、分页写法都在这里查</span></li>
+      <li>📖 <a href="https://spring.io/projects/spring-framework" target="_blank">Spring Framework 官方文档</a> — <span class="desc">IoC 容器与事务的原理出处，理解为什么依赖注入能支撑分层</span></li>
+      <li>🛠 <a href="https://www.archunit.org/" target="_blank">ArchUnit</a> — <span class="desc">用单元测试表达架构规则，把"不许越层"变成可执行断言</span></li>
+      <li>📖 <a href="https://www.baeldung.com/" target="_blank">Baeldung 教程站</a> — <span class="desc">Spring 分层与 DTO 转换的大量可运行示例，检索关键词 DTO Entity VO</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能不看资料画出 Controller、Service、DAO 的依赖方向，并解释为什么不能反向依赖吗？</li>
+      <li>我能说清 DTO、Entity、VO 各自的用途，以及事务为什么要放在 Service 层吗？</li>
+      <li>我能独立写出一个符合分层规范、通过编译的增删改查接口吗？</li>
+      <li>我的项目里还有哪些越层调用或"上帝类"？我列得出整改清单吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m1-5.html">← 上一节：SpringBoot 自动配置与 Starter</a>
+    <a href="s3-m2-2.html">下一节：统一响应、异常处理与参数校验 →</a>
+  </div>
+
+</div>
+</body>
+</html>

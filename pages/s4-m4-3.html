@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>新旧系统数据与接口打通 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块四 · 企业级项目智能化升级 / <strong>新旧系统数据与接口打通</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>新旧系统数据与接口打通</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块四 · 企业级项目智能化升级</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够为 AI 新模块与存量系统选择正确的数据打通方式：API 直连、消息队列、数据同步还是人工导出。</li>
+      <li>能够设计字段映射与数据清洗规则，处理编码不一致、脏数据、时区与主键冲突问题。</li>
+      <li>能够用幂等键与对账机制保证新旧系统双写场景下的数据最终一致。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：四种打通方式的取舍</h3>
+    <p><strong>API 直连</strong>适合实时性要求高、调用量可控的场景，但要求老系统能提供接口且扛得住新流量；<strong>消息队列（Kafka/RabbitMQ）</strong>适合事件驱动、削峰填谷，老系统改造成本低，代价是引入了运维复杂度；<strong>数据层同步</strong>（读同一库、定时 ETL）最快见效但耦合最深，是"能不选就不选"的选项；<strong>人工导出导入</strong>适合冷数据初始化，千万别用它做日常链路。</p>
+    <p>选型口诀：<strong>能异步就不同步，能读就不写，能旁路挂载就不侵入老库</strong>。特别注意：很多老系统没有幂等接口，一旦走重试就会产生重复订单，这是打通阶段事故率最高的雷。</p>
+
+    <h3>知识点 2：字段映射与数据清洗</h3>
+    <p>新旧系统的字段几乎不可能天然对齐。常见的坑：<strong>主键策略不同</strong>（老系统自增 ID，新系统 UUID）、<strong>状态枚举不一致</strong>（老系统用数字 0/1/2，新系统用英文枚举）、<strong>编码与精度问题</strong>（GBK 与 UTF-8、金额用分还是元、时间戳是秒还是毫秒、时区是否统一）。</p>
+    <p>做法是先产出一份<strong>字段映射表</strong>（源字段 → 目标字段 → 转换规则 → 缺省值），再用脚本对历史数据做一次全量清洗并抽样核对。凡是转换不了的脏数据要单独入"异常表"并安排人工处理，不要让整批任务因为 1% 的坏数据失败。</p>
+
+    <h3>知识点 3：双写一致性与对账</h3>
+    <p>过渡期往往新旧系统并行，同一笔业务两边都要记，这就涉及<strong>双写</strong>。推荐用<strong>本地消息表 + 最终一致</strong>：业务操作和"待发送消息"写在同一个本地事务里，后台任务把消息投递到新系统，失败自动重试。为每条消息带上<strong>幂等键</strong>（如业务流水号），新系统按幂等键去重。</p>
+    <p>光有重试还不够，必须有<strong>对账任务</strong>：每天凌晨比对两边的记录数与关键金额汇总，差异自动告警。对账是打通链路的最后一道保险，也是给老板看的"数据放心丸"。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：用 SQL 生成字段映射与清洗脚本，把老库订单同步到新库的中间表（处理状态映射与金额单位）：</p>
+<pre><code>-- 老库 old_order → 新库 staging_order 的清洗示例（MySQL）
+INSERT INTO staging_order (order_id, status, amount_yuan, created_at, source)
+SELECT
+    CONCAT('OLD-', o.id)                       AS order_id,      -- 主键加前缀避免与新系统冲突
+    CASE o.state                               -- 数字枚举 → 英文枚举
+        WHEN 0 THEN 'CREATED'
+        WHEN 1 THEN 'PAID'
+        WHEN 2 THEN 'SHIPPED'
+        ELSE 'UNKNOWN'
+    END                                        AS status,
+    o.pay_fee / 100.0                          AS amount_yuan,   -- 老系统存"分"，新系统用"元"
+    FROM_UNIXTIME(o.create_time)               AS created_at,    -- 秒级时间戳统一转 datetime
+    'legacy'                                   AS source
+FROM old_order o
+WHERE o.create_time &gt;= UNIX_TIMESTAMP('2024-01-01')
+  AND o.state IN (0, 1, 2)                     -- 脏状态单独入异常表，不阻塞主流程
+ON DUPLICATE KEY UPDATE status = VALUES(status);
+</code></pre>
+    <p>示例二：给下游投递消息时的幂等键设计——业务流水号天然唯一，直接用作幂等键：</p>
+<pre><code># producer.py —— 本地消息表模式的发送端骨架
+import json, pymysql
+
+def submit_order(cursor, order):
+    # 1. 业务写库 + 消息写库，同一个本地事务
+    cursor.execute("INSERT INTO biz_order VALUES (%s, %s)", (order["id"], order["amount"]))
+    payload = json.dumps({"biz_no": order["id"], "action": "order.created"},
+                         ensure_ascii=False)
+    cursor.execute("INSERT INTO outbox (idem_key, payload, status) VALUES (%s, %s, 'NEW')",
+                   (order["id"], payload))   # idem_key = 业务流水号 = 下游幂等键
+
+# 后台任务扫描 outbox 表投递到 MQ，失败重试；下游按 idem_key 去重
+</code></pre>
+    <div class="tip">💡 提示：同步任务先在测试环境对 1 万条数据跑通并人工抽查 50 条，再上生产。全量同步放低峰期执行，中途失败要能断点续跑。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为你上一节设计的 AI 模块列出所需数据清单（表名、字段、量级、更新频率），并为每项数据选择一种打通方式。</li>
+      <li><strong>任务 2</strong>：手工造 100 条模拟老数据（至少包含 3 种脏数据：空值、非法枚举、金额异常），完成一次清洗并写出异常记录的处理规则。</li>
+      <li><strong>任务 3</strong>：实现一个带幂等键的 outbox 发送端 + 消费端去重逻辑，用单元测试验证"重复投递只生效一次"。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：写一个每日对账脚本，比对新旧库记录数与金额合计，差异超过阈值时输出差异明细。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://kafka.apache.org/documentation/" target="_blank">Apache Kafka 官方文档</a> — <span class="desc">事件驱动打通方案的首选中间件，重点看生产者幂等配置章节</span></li>
+      <li>📖 <a href="https://nacos.io/zh-cn/docs/what-is-nacos.html" target="_blank">Nacos 官方文档</a> — <span class="desc">老接口不存在时，用注册中心+配置中心快速为新模块开接口</span></li>
+      <li>📖 <a href="https://debezium.io/documentation/reference/stable/connectors/mysql.html" target="_blank">Debezium MySQL Connector</a> — <span class="desc">基于 binlog 的无侵入数据同步，适合不敢动老库的场景</span></li>
+      <li>📖 <a href="https://martinfowler.com/eaaDev/EventSourcing.html" target="_blank">Martin Fowler — Event Sourcing</a> — <span class="desc">理解事件与最终一致性的经典文章</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说出四种打通方式的适用场景与代价吗？</li>
+      <li>我的字段映射表是否覆盖了主键、枚举、精度、时区四类问题？</li>
+      <li>我的链路是否具备幂等键、失败重试和每日对账三道防线？</li>
+      <li>如果同步任务中途挂掉，我的方案能断点续跑且不产生重复数据吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m4-2.html">← 上一节：AI 能力嵌入现有业务流程的方案设计</a>
+    <a href="s4-m4-4.html">下一节：灰度发布与回滚机制 →</a>
+  </div>
+
+</div>
+</body>
+</html>

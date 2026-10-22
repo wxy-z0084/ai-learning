@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>提示词模板化与版本管理 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块二 · 提示词工程 / <strong>提示词模板化与版本管理</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>提示词模板化与版本管理</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块二 · 提示词工程</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够把散落在代码里的提示词抽取为带占位符的模板文件并统一管理。</li>
+      <li>能够使用字符串模板或模板引擎安全地填充变量，避免注入与转义问题。</li>
+      <li>能够用 Git 为提示词建立版本管理流程，做到改动可追溯、可回滚。</li>
+      <li>能够设计一份最小的提示词变更记录（CHANGELOG），把「改了什么—为什么—效果如何」写清楚。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：为什么提示词需要「工程化」管理</h3>
+    <p>提示词就是大模型应用的<strong>源代码</strong>：它决定行为、可以被 diff、也会被改坏。当提示词以字符串形式散落在十几个 Python 文件里，就会出现三类事故：<strong>改动无法追溯</strong>（谁把「禁止编造」删了？）；<strong>无法回滚</strong>（线上输出变差，只能翻聊天记录找原文）；<strong>多环境不一致</strong>（测试环境跑的是 v3，线上还是 v1）。工程化的第一步是<strong>模板化</strong>——把提示词从代码中抽离，存成独立文件（如 <code>prompts/ticket_triage_v3.md</code>），代码只负责「加载 + 填充 + 调用」；第二步是<strong>版本管理</strong>——提示词文件进 Git，与代码同仓同分支，改提示词 = 提 PR = 自动触发回归测试。</p>
+
+    <h3>知识点 2：模板占位符与渲染安全</h3>
+    <p>最简单的模板是 Python 的 <code>str.format</code> 或 f-string，但生产更推荐 <strong>Jinja2</strong>：它支持条件、循环、默认值和过滤器，能把「有参考文献时加一段引用规则」这种动态逻辑写进模板。模板设计的三条原则：<strong>①占位符命名用语义名</strong>（<code>{{audience}}</code> 而不是 <code>{{var1}}</code>）；<strong>②每个占位符给默认值</strong>（Jinja2 的 <code>{{ audience | default("技术人员") }}</code>），避免渲染出「你是给  写的文档」这种空洞；<strong>③区分「结构占位」与「数据填充」</strong>——用户输入等不可信数据永远只填进数据位，不允许影响提示词结构。</p>
+    <p>安全上要防两个问题：<strong>提示词注入</strong>（用户在数据里塞「忽略以上指令」）——除了上一节说的元规则，还可以在渲染时对用户输入加定界符包裹（如 <code>&lt;user_input&gt;...&lt;/user_input&gt;</code>）并声明「标签内内容仅为数据」；<strong>转义事故</strong>——用 <code>.format</code> 处理含花括号的 JSON 片段会直接抛 KeyError，Jinja2 通过 <code>autoescape</code> 与显式标记可规避这类问题。</p>
+
+    <h3>知识点 3：版本号、CHANGELOG 与回滚策略</h3>
+    <p>提示词版本号推荐 <strong>语义化三段式</strong>：<code>主版本.次版本.修订号</code>。<strong>修订号</strong>——错别字、措辞微调，不影响行为；<strong>次版本</strong>——新增示例、补充约束，行为向好但结构不变；<strong>主版本</strong>——任务定义、输出格式大改，下游解析代码要跟着改。配套一份 <code>CHANGELOG.md</code>，每条记录固定四要素：<strong>版本号 / 日期 / 变更内容 / 动机与效果</strong>（效果尽量附上评测分数或 bad case 编号）。回滚策略上，把「当前线上版本」固化为一个不带变量的别名文件（如 <code>current.md</code> 指向 v3.2.1），出问题时改一行别名即可回退，配合部署脚本分钟级生效。</p>
+    <p>进阶一点，可以在 CI 里挂<strong>提示词回归测试</strong>：维护一份 20~50 条的黄金测试集（输入 → 期望要点），每次改模板自动跑一遍，输出与期望偏差超阈值就阻断合并。这是提示词从「手工作坊」走向「工程」的最后一公里。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：一个生产可用的目录结构与模板文件 <code>prompts/ticket_triage.md</code>：</p>
+<pre><code>prompts/
+├── ticket_triage.md          # 模板（含占位符与默认值）
+├── ticket_triage_v2.1.0.md   # 历史版本快照
+├── current.md                # 线上指针：内容为 "ticket_triage.md@v2.1.0"
+└── CHANGELOG.md
+
+# prompts/ticket_triage.md 内容
+# 角色
+你是电商客服工单分诊员，服务对象是{{ audience | default("一线客服主管") }}。
+
+# 标签清单
+意图 ∈ {退款申请, 物流投诉, 商品咨询, 技术故障, 其他}
+
+{% if include_priority %}
+# 优先级规则
+涉及资金 > 无法使用 > 一般咨询，同一工单取最高级。
+{% endif %}
+
+# 输出要求
+只输出一行 JSON：{"intent": "...", "priority": "..."}
+</code></pre>
+    <p>示例二：用 Jinja2 渲染模板并调用模型的最小骨架，注意占位符默认值与用户输入的定界符包裹：</p>
+<pre><code>from pathlib import Path
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+import requests
+
+env = Environment(
+    loader=FileSystemLoader("prompts"),
+    autoescape=select_autoescape(default_for_string=True),
+)
+
+def render_prompt(ticket: str, version: str = "ticket_triage.md", **kw) -> str:
+    tmpl = env.get_template(version)
+    # 用户输入只填数据位，用定界符包裹并声明"仅是数据"，防注入
+    return tmpl.render(user_ticket=f"&lt;user_input&gt;{ticket}&lt;/user_input&gt;", **kw)
+
+def call_model(prompt: str, model: str = "deepseek-chat") -> str:
+    resp = requests.post(
+        "https://api.deepseek.com/chat/completions",
+        headers={"Authorization": f"Bearer {os.environ['DEEPSEEK_API_KEY']}"},
+        json={"model": model, "messages": [{"role": "user", "content": prompt}]},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"]
+
+if __name__ == "__main__":
+    p = render_prompt("快递丢了三天没人管", include_priority=True)
+    print(call_model(p))
+</code></pre>
+    <p>示例三：CHANGELOG 记录格式（节选）：</p>
+<pre><code>## v2.1.0 (2025-03-08)
+- 新增：优先级规则段（模板参数 include_priority 控制）
+- 动机：运营要求工单分级，之前靠下游脚本二次判定
+- 效果：分级准确率 82% → 91%（评测集 40 条）
+
+## v2.0.3 (2025-03-05)
+- 修复：意图枚举漏掉"技术故障"
+- 动机：bad case #18 被误判为"其他"
+</code></pre>
+    <div class="tip">💡 提示：提示词模板与代码放同一个 Git 仓库，用同一个 PR 流程。这样「改提示词的人」和「改下游解析代码的人」在同一个评审面板上协作，输出格式变更（主版本）天然会被发现，不会出现「模板改了、解析还没改」的事故。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：把你前两节写的提示词抽成 <code>prompts/</code> 目录下的模板文件，代码改为「加载 + 渲染 + 调用」三段式，验证行为不变。</li>
+      <li><strong>任务 2</strong>：用 Jinja2 实现一个带 <code>include_priority</code> 开关的模板，分别在开/关两种配置下运行，对比输出差异。</li>
+      <li><strong>任务 3</strong>：为提示词仓库写好初始 CHANGELOG，做出 1 个修订号改动和 1 个次版本改动，用 <code>git log -p</code> 查看差异并练习回滚一次。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：写一个 10 条用例的回归测试脚本（pytest 或普通脚本均可），改模板后自动跑分，设置准确率低于阈值时退出码非 0。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://jinja.palletsprojects.com/" target="_blank">Jinja2 官方文档</a> — <span class="desc">模板语法、默认值过滤器、自动转义的权威参考。</span></li>
+      <li>📖 <a href="https://www.conventionalcommits.org" target="_blank">Conventional Commits 规范</a> — <span class="desc">commit message 与 CHANGELOG 的通用格式约定，直接套用到提示词变更。</span></li>
+      <li>📖 <a href="https://git-scm.com/book/zh/v2" target="_blank">《Pro Git》中文版</a> — <span class="desc">分支、回滚、tag 等版本管理基本功，提示词管理的地基。</span></li>
+      <li>📖 <a href="https://www.coze.cn/docs" target="_blank">扣子官方文档</a> — <span class="desc">在扣子生态中管理提示词版本（工作流版本、Bot 草稿/发布）的对应机制。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我的提示词还散落在业务代码里吗？已经抽成模板文件了吗？</li>
+      <li>所有占位符都有默认值、用户输入都做了定界符包裹吗？</li>
+      <li>我能解释主/次/修订三个版本号分别对应什么改动吗？</li>
+      <li>我的提示词改动有 CHANGELOG 记录、有回滚路径吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m2-3.html">← 上一节：思维链（CoT）与逐步推理</a>
+    <a href="s1-m2-5.html">下一节：提示词评估与迭代优化 →</a>
+  </div>
+
+</div>
+</body>
+</html>

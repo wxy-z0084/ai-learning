@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>服务调用（OpenFeign）与熔断降级（Sentinel）· AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块一 · 微服务架构 / <strong>服务调用（OpenFeign）与熔断降级（Sentinel）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>服务调用（OpenFeign）与熔断降级（Sentinel）</h1>
+    <div class="meta"><span class="time-chip">预计 1.5 天</span>模块一 · 微服务架构</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够用 <strong>@FeignClient</strong> 写出声明式服务调用接口，配好超时、日志级别与错误解码。</li>
+      <li>能够为每个远程调用配上 <strong>fallback 降级逻辑</strong>，并说明 fallbackFactory 与普通 fallback 的选择标准。</li>
+      <li>能够读懂并配置 Sentinel 的三组规则：流控（QPS/线程数）、熔断（慢调用/异常比例/异常数）、系统保护。</li>
+      <li>能够把规则<strong>持久化到 Nacos</strong> 并完成一次"故障注入 → 熔断触发 → 自动恢复"的完整演练。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：OpenFeign——把 HTTP 调用写成接口</h3>
+    <p>手写 <code>RestTemplate</code> 调用要自己拼 URL、自己处理序列化，服务名变更时到处改。OpenFeign 把远程调用声明为一个<strong>接口 + 注解</strong>：启动时扫描 <code>@FeignClient(name = "order-service")</code> 的接口，生成代理实现，运行期从注册中心解析服务名（与 Spring Cloud LoadBalancer 打通），完成负载均衡的 HTTP 调用。写法上只需要方法上的 <code>@GetMapping / @PostMapping</code>、路径占位符与参数注解，返回值自动反序列化为 DTO。</p>
+    <p>必须显式配置的三件事：<strong>① 超时</strong>——默认连接 10s、读 60s（或由配置决定），生产建议 connect 1–2s、read 2–3s，超时太长会把下游的慢拖成调用方的雪崩；<strong>② 日志级别</strong>——<code>NONE</code>（默认）/ <code>BASIC</code>（方法与状态码，排障首选）/ <code>HEADERS</code> / <code>FULL</code>（含 body，仅本地用，注意别把手机号身份证打进日志）；<strong>③ 错误解码</strong>——下游返回 4xx/5xx 时 Feign 默认抛 <code>FeignException</code>，需要自定义 <code>ErrorDecoder</code> 把错误体解析成业务异常，调用方才能拿到下游的真实错误码。常见坑：<strong>接口是"动词 + 名词"的幂等语义才可安全重试</strong>，POST 下单绝不能配重试，否则一次网络抖动变两单。</p>
+
+    <h3>知识点 2：fallback——降级是调用方的责任</h3>
+    <p>Feign 接口的 <code>fallback</code> 属性指向一个实现了同一接口的 Bean：目标服务宕机、超时、限流时自动走它，返回兜底数据而不是抛异常给用户。需要区分两种写法：<strong>fallback 类</strong>适合"固定兜底"（返回默认值、空列表）；<strong>fallbackFactory</strong> 能拿到触发降级的 <code>Throwable</code>，可以按原因区分处理（超时给"稍后重试"、限流给"排队中"、404 给"商品不存在"），<strong>生产首选 fallbackFactory</strong>，因为它能记录真实原因、打点告警，避免把故障静默成"看起来正常的数据"。开启方式是在配置里加 <code>spring.cloud.openfeign.sentinel.enabled=true</code>（需要 feign-sentinel 依赖），并注意：<strong>降级返回的数据必须真的可接受</strong>——价格接口返回 0 元、库存接口返回"有货"都会造成资损，宁可快速失败。</p>
+
+    <h3>知识点 3：Sentinel 的三组规则与工作原理</h3>
+    <p>Sentinel 以<strong>资源</strong>为核心（可以是方法、接口或一段代码），对每个资源统计 QPS、线程数、响应时间与异常，再按规则决定放行、限流、熔断或系统保护。<strong>① 流控规则</strong>：阈值类型可选 QPS 或并发线程数，流控模式有<strong>直接</strong>（限自己）、<strong>关联</strong>（A 的 QPS 超阈值时限 B，典型如"写库压力大时限查询"）、<strong>链路</strong>（只限来自某个入口的流量）；<strong>② 熔断降级规则</strong>：策略有<strong>慢调用比例</strong>（RT 超过阈值的请求占比过高则熔断）、<strong>异常比例</strong>、<strong>异常数</strong>，触发后进入熔断窗口（如 10s），窗口内直接失败不打到下游，熔断结束后放一小批探测请求决定是否恢复——这就是"断路器"；<strong>③ 系统保护规则</strong>：按机器的 CPU、Load、入口 QPS、平均 RT 兜底限流，防止整体被压垮。规则默认存在内存，<strong>重启即丢</strong>，生产必须用<strong>规则持久化</strong>：推到 Nacos 配置，Sentinel 定时监听同步。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：支付服务调用订单服务的 Feign 客户端 + 超时/日志/降级配置（接口 + application.yml）：</p>
+<pre><code>// 1) 声明式客户端：路径写业务路径，服务名交给注册中心解析
+@FeignClient(name = "order-service",             // 注册中心里的服务名
+             path = "/order",                    // 服务端统一前缀
+             fallbackFactory = OrderClientFallback.class)  // 降级走工厂
+public interface OrderClient {
+
+    @GetMapping("/{id}")
+    OrderDTO getById(@PathVariable("id") Long id);
+
+    @PostMapping("/create")
+    OrderDTO create(@RequestBody OrderCreateReq req);   // 非幂等：禁止自动重试
+}
+
+// 2) fallbackFactory：能拿到真实异常，区分"超时/限流/业务错误"
+@Component
+public class OrderClientFallback implements FallbackFactory&lt;OrderClient&gt; {
+
+    @Override
+    public OrderClient create(Throwable cause) {
+        log.error("[OrderClient] 调用降级, reason={}", cause.toString());
+        metrics.counter("order_client_fallback").increment();  // 降级必须打点
+        return new OrderClient() {
+            @Override
+            public OrderDTO getById(Long id) {
+                if (cause instanceof SocketTimeoutException) {
+                    throw new BizException("ORDER_TIMEOUT", "订单服务繁忙，请稍后刷新");
+                }
+                return OrderDTO.unknown(id);      // 查询类可给占位数据
+            }
+
+            @Override
+            public OrderDTO create(OrderCreateReq req) {
+                // 下单绝不能静默兜底：直接抛出，让上层走补偿/提示
+                throw new BizException("ORDER_UNAVAILABLE", "下单暂不可用，请稍后重试");
+            }
+        };
+    }
+}</code></pre>
+<pre><code># application.yml —— 超时、日志、Sentinel 联动一次配齐
+spring:
+  cloud:
+    openfeign:
+      client:
+        config:
+          default:                 # 也可只写某一个服务名做定向覆盖
+            connectTimeout: 1500   # 连接超时 1.5s
+            readTimeout: 3000      # 读超时 3s，与下游 RT 预算一致
+            loggerLevel: basic     # 只记方法/URL/状态码，避免 body 泄密
+      sentinel:
+        enabled: true              # 关键：Feign 调用纳入 Sentinel 资源与熔断
+feign:
+  circuitbreaker:
+    enabled: true</code></pre>
+    <p>示例二：Sentinel 资源注解 + Nacos 中持久化的规则（JSON，导入 Nacos 后由 Sentinel 自动加载）：</p>
+<pre><code>// 资源注解：blockHandler 处理限流/熔断，fallback 处理业务异常，方法必须 static 且签名一致
+@Service
+public class OrderQueryService {
+
+    @SentinelResource(value = "queryOrder",
+            blockHandler = "queryBlock",          // 触发限流/熔断时进这里
+            exceptionsToThrow = BizException.class)
+    public OrderDTO queryOrder(Long id) {
+        return orderClient.getById(id);
+    }
+
+    public static OrderDTO queryBlock(Long id, BlockException ex) {
+        log.warn("queryOrder 被 Sentinel 拦截: {}", ex.getClass().getSimpleName());
+        return OrderDTO.degraded(id);             // 返回可接受的降级数据
+    }
+}</code></pre>
+<pre><code>{
+  "resource": "queryOrder",
+  "limitApp": "default",
+  "grade": 1,                 // 0=线程数, 1=QPS
+  "count": 200,                // 单机 QPS 上限 200
+  "strategy": 0,               // 0=直接, 1=关联, 2=链路
+  "controlBehavior": 0,        // 0=快速失败, 1=Warm Up, 2=排队等待
+  "clusterMode": false
+}
+# 同目录再放一条熔断规则：10s 内异常比例 ≥ 50% 则熔断 10 秒
+# { "resource": "queryOrder", "grade": 2, "count": 0.5, "timeWindow": 10,
+#   "minRequestAmount": 5, "statIntervalMs": 1000, "strategy": 1 }</code></pre>
+    <div class="tip">💡 排查顺序建议：先用 <code>curl</code> 直连下游确认服务本身正常 → 看 Feign 日志级别是否为 basic → 看 Sentinel 控制台"实时链路"里该资源的 QPS/RT → 再看是否命中限流或熔断。规则写进 Nacos 的 dataId 命名建议为 <code>sentinel-order-service.json</code> 并用 group=SENTINEL_GROUP，避免与其他配置混淆。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：写一个 Feign 接口调用 Nacos 中的另一个服务，把日志级别调到 basic，观察一次成功与一次 404 的日志与异常形态；再自定义 ErrorDecoder 把下游错误体解析成业务异常。</li>
+      <li><strong>任务 2</strong>：给该调用配上 fallbackFactory，人为停掉下游服务，验证：查询类返回占位数据、写入类抛出可读错误，且降级打点在日志/监控中可见。</li>
+      <li><strong>任务 3</strong>：部署 Sentinel 控制台，对目标资源配置 QPS=50 的流控规则，用压测脚本打到 100 QPS，统计被拒请求数量与响应体；再改流控模式为"关联"验证效果差异。</li>
+      <li><strong>任务 4</strong>：配置熔断规则（慢调用比例 RT&gt;500ms 占比 60%，熔断 10s），让下游 sleep 1 秒制造慢调用，观察"打开 → 半开探测 → 关闭"全过程日志；随后把流控与熔断规则推到 Nacos 持久化，重启服务与控制台验证规则仍在，再对比规则丢失（内存态）与持久化后的差异。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://sentinelguard.io/zh-cn/docs/" target="_blank">Sentinel 官方中文文档</a> — <span class="desc">流控/熔断/系统保护三组规则的完整参数说明与控制台使用手册，本节的权威出处。</span></li>
+      <li>📖 <a href="https://github.com/alibaba/spring-cloud-alibaba" target="_blank">Spring Cloud Alibaba GitHub</a> — <span class="desc">feign-sentinel 集成方式、starter 依赖与官方示例，版本对应关系看这里。</span></li>
+      <li>📖 <a href="https://github.com/OpenFeign/feign" target="_blank">OpenFeign GitHub</a> — <span class="desc">注解语义、Encoder/Decoder、ErrorDecoder 扩展点的源码与说明。</span></li>
+      <li>📖 <a href="https://spring.io/projects/spring-cloud-openfeign" target="_blank">Spring Cloud OpenFeign 项目页</a> — <span class="desc">与 Spring Cloud Alibaba 配合的配置项（超时、日志、circuitbreaker）参考。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能独立写出一个带超时、日志、ErrorDecoder 与 fallbackFactory 的 Feign 调用吗？</li>
+      <li>我能解释 fallback 与 fallbackFactory 的区别，并说明哪些接口绝不能做静默降级吗？</li>
+      <li>我能说出 Sentinel 三组规则分别在什么场景启用，以及熔断"打开→半开→关闭"的状态转换吗？</li>
+      <li>我能让限流与熔断规则在服务重启后仍然生效（持久化到 Nacos）吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m1-3.html">← 上一节：API 网关（Gateway）与负载均衡</a>
+    <a href="s4-m1-5.html">下一节：链路追踪与分布式日志 →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LangGraph 多步智能体工作流 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块四 · LangChain / <strong>LangGraph 多步智能体工作流</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>LangGraph 多步智能体工作流</h1>
+    <div class="meta"><span class="time-chip">预计 1.5 天</span>模块四 · LangChain</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说出 AgentExecutor 黑盒循环的局限，并解释为什么复杂流程要用<strong>图（状态机）</strong>来显式编排。</li>
+      <li>能够用 StateGraph 完成"定义状态 → 添加节点 → 连接边/条件边 → 编译执行"的完整开发流程。</li>
+      <li>能够设计合理的 State 结构（TypedDict + reducer），并实现"智能体 ↔ 工具"的循环图。</li>
+      <li>能够接入 Checkpointer 实现断点持久化、人工审批（interrupt）与多轮会话恢复。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：从 AgentExecutor 到图编排</h3>
+    <p>上一节的 AgentExecutor 是一个"模型说啥就干啥"的通用循环，优点是省事，缺点也正在于此：<strong>流程不可见、不可控</strong>。真实业务往往需要固定骨架：先做安全审核 → 再检索 → 再生成 → 生成结果涉及退款就必须走人工审批 → 才能执行。这类"部分确定、部分由模型决定"的流程，用 AgentExecutor 只能靠提示词祈求模型配合，非常脆弱。</p>
+    <p><strong>LangGraph</strong> 把智能体建模为一张<strong>有状态的图</strong>：节点（Node）是执行单元（调模型、调工具、跑函数），边（Edge）决定流转，条件边（Conditional Edge）让模型/业务规则决定走向，共享状态（State）在节点间传递数据。它带来三个质变：<strong>流程显式可读</strong>（图即文档）、<strong>每一步可持久化与恢复</strong>（Checkpointer）、<strong>可插入人工环节</strong>（interrupt）——这是把 Demo 变成生产系统的分水岭。</p>
+
+    <h3>知识点 2：State 设计是图的灵魂</h3>
+    <p>State 是所有节点共享的数据结构，通常用 <code>TypedDict</code> 定义。关键机制是 <strong>reducer（规约函数）</strong>：字段声明为 <code>Annotated[list, add_messages]</code> 时，节点返回的消息会<strong>追加</strong>到列表而不是覆盖；不加 reducer 的普通字段则是<strong>后者覆盖前者</strong>。设计原则：① 只放跨节点需要的数据（消息历史、检索结果、审批状态、草稿内容）；② 消息类字段一定用 add_messages，否则并行节点会互相覆盖；③ State 尽量小而稳定，它的每次变化都会被 Checkpointer 记录。</p>
+
+    <h3>知识点 3：节点、边与循环</h3>
+    <p>建图四步：<code>StateGraph(State)</code> 建图 → <code>add_node("名", 函数)</code> 加节点（函数签名 <code>state: State -&gt; dict</code>，返回值按 reducer 规则合并进状态）→ <code>add_edge</code> 连固定边、<code>add_conditional_edges</code> 连条件边 → <code>compile()</code> 编译为可执行图。入口用 <code>START</code>、出口用 <code>END</code>。<strong>条件边</strong>通过一个路由函数读取 State 返回下一节点名，从而实现分支；把条件边指回之前的节点就形成<strong>循环</strong>——"思考 → 调工具 → 观察 → 再思考"正是这样建模的。图支持<strong>并行分支</strong>（一条边连多个后续节点）和<strong>汇总节点</strong>，天然适合"多路检索后汇总生成"。</p>
+
+    <h3>知识点 4：持久化、人工审批与多智能体</h3>
+    <p>编译时传入 <code>checkpointer=MemorySaver()</code>（开发）或 <code>SqliteSaver/PostgresSaver</code>（生产），每次执行都会存快照，用 <code>thread_id</code> 标识会话——同一 thread 可以 <code>get_state()</code> 查看进度、<code>update_state()</code> 修正状态、从中断处继续执行。<strong>人工审批</strong>：在审批节点调用 <code>interrupt()</code> 暂停图，人工确认后用 Command(resume=...) 恢复。多智能体协作的常见拓扑：<strong>Supervisor（主管）模式</strong>——一个协调节点根据任务类型分发给检索专家、编码专家等子图，以及<strong>网络（handoff）模式</strong>——节点之间互相移交控制权。起步建议先用 Supervisor，容易调试也容易限权。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：定义带 reducer 的状态，构建"生成 → 风险判断 → 人工审批"的条件分支图：</p>
+<pre><code># pip install langgraph langchain langchain-openai
+from typing import Annotated, TypedDict
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+
+class State(TypedDict):
+    messages: Annotated[list, add_messages]   # reducer：追加而非覆盖
+    need_review: bool                          # 普通字段：节点返回值直接覆盖
+
+model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+RISKY_WORDS = ["退款", "删除", "转账"]
+
+def generate(state: State):
+    reply = model.invoke(state["messages"])
+    flagged = any(w in reply.content for w in RISKY_WORDS)
+    return {"messages": [reply], "need_review": flagged}
+
+def route(state: State):
+    return "approve" if state["need_review"] else END      # 条件边：按状态选走向
+
+def approve(state: State):
+    # 真实项目在这里发起人工审批（如发企业微信/工单），通过后再放行
+    return {"messages": [AIMessage("[已通过人工审批，允许执行]")]}
+
+builder = StateGraph(State)
+builder.add_node("generate", generate)
+builder.add_node("approve", approve)
+builder.add_edge(START, "generate")
+builder.add_conditional_edges("generate", route, {"approve": "approve", END: END})
+builder.add_edge("approve", END)
+app = builder.compile()
+
+result = app.invoke({"messages": [HumanMessage("帮我退掉订单 SO2024001")], "need_review": False})
+for m in result["messages"]:
+    print(m.type, "|", m.content)</code></pre>
+
+    <p>示例二：接入 Checkpointer，让流程可中断、可恢复、可多轮会话：</p>
+<pre><code>from langgraph.checkpoint.memory import MemorySaver   # 生产改用 SqliteSaver/PostgresSaver
+
+app = builder.compile(checkpointer=MemorySaver())
+cfg = {"configurable": {"thread_id": "会话-1001"}}
+
+# 第一步：执行到需要审批的节点（节点内调用 interrupt() 即会挂起并持久化）
+# app.invoke({"messages": [HumanMessage("执行删除操作")]}, cfg)
+
+state = app.get_state(cfg)                 # 查看当前进度与状态
+print(state.next)                          # 例如 ('approve',) —— 停在审批节点
+# 人工在后台批准后，携带结果恢复执行：
+# app.invoke(Command(resume={"approved": True}), cfg)
+# 换 thread_id 即为全新会话；同一 thread 重启进程后仍能继续（PostgresSaver 场景）</code></pre>
+
+    <div class="tip">💡 提示：LangGraph 提供预建好的 ReAct 智能体（langgraph.prebuilt 的 create_react_agent，参数在不同版本间略有差异），几分钟即可跑通"模型+工具"循环；但只要流程涉及固定步骤或人工审批，就应回到 StateGraph 手动建图——那才是 LangGraph 的真正价值所在。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：不使用任何大模型，纯函数节点实现"订单校验 → 库存扣减 → 生成单据"的线性图，打印每次执行后的 State 快照，理解状态流转。</li>
+      <li><strong>任务 2</strong>：在示例一基础上加入检索节点：先检索知识库再生成，检索结果存入 State 供审批节点展示给人工。</li>
+      <li><strong>任务 3</strong>：用 SqliteSaver 持久化 Checkpointer，模拟"执行到一半杀掉进程，重启后从断点恢复"，验证 thread_id 机制。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：实现 Supervisor 多智能体：一个路由节点按问题类型把任务分发给"检索子图"或"闲聊子图"，并让两路并行执行后在汇总节点合并结果。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://langchain-ai.github.io/langgraph/" target="_blank">LangGraph 官方文档</a> — <span class="desc">快速开始、低层概念与教程，本节全部代码的权威出处。</span></li>
+      <li>📖 <a href="https://langchain-ai.github.io/langgraph/concepts/" target="_blank">LangGraph Concepts（概念）</a> — <span class="desc">State、Node、Checkpointer、Persistence 等概念的深入解释，写复杂图前必读。</span></li>
+      <li>📖 <a href="https://github.com/langchain-ai/langgraph" target="_blank">LangGraph GitHub 仓库</a> — <span class="desc">examples 目录有官方示例：人机协同、多智能体、定时任务等可直接抄。</span></li>
+      <li>📖 <a href="https://blog.langchain.dev/langgraph-platform-announcement/" target="_blank">LangGraph Platform 发布文章</a> — <span class="desc">了解 LangGraph 的部署形态与后台线程管理的设计动机。</span></li>
+      <li>🛠 <a href="https://smith.langchain.com/" target="_blank">LangSmith</a> — <span class="desc">LangGraph 官方可观测平台，可图形化查看每次图执行的节点轨迹与耗时。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清 AgentExecutor 与 LangGraph 各自适合什么场景吗？</li>
+      <li>我能独立完成"State → add_node → add_conditional_edges → compile → invoke"全流程吗？</li>
+      <li>我能解释 reducer 的作用，并说清哪些字段必须用 add_messages 吗？</li>
+      <li>我能让一个带人工审批节点的流程真正"中断后恢复"吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m4-4.html">← 上一节：LCEL 声明式链路编排</a>
+    <a href="s2-m5-1.html">下一节：智能体工程化目录与配置管理 →</a>
+  </div>
+
+</div>
+</body>
+</html>

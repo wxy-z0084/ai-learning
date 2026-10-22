@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 能力嵌入现有业务流程的方案设计 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块四 · 企业级项目智能化升级 / <strong>AI 能力嵌入现有业务流程的方案设计</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>AI 能力嵌入现有业务流程的方案设计</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块四 · 企业级项目智能化升级</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够根据场景特点选择正确的嵌入模式：旁路辅助、人机协同审核，还是全自动执行。</li>
+      <li>能够画出 AI 能力在现有系统中的落位图，明确 AI 模块与原系统的边界、数据流和失败兜底路径。</li>
+      <li>能够设计一套"AI 输出永远不直接破坏业务数据"的防御性集成方案。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：三种嵌入模式与选型标准</h3>
+    <p>方案设计的第一个决策是"AI 站在流程的哪一侧"。<strong>旁路辅助模式</strong>：AI 只提供参考信息（推荐、提示、草稿），人做最终决定——容错差、创新期首选；<strong>人机协同模式</strong>：AI 先处理，低置信度的转人工，高置信度的直接生效——吞吐量和质量的平衡点；<strong>全自动模式</strong>：AI 直接执行写操作——只适合错误代价极低且有回滚机制的环节。</p>
+    <p>选型的判断轴是<strong>错误代价 × 置信度可度量性</strong>。金融审核错一笔可能损失百万，必须留人工闸口；垃圾邮件过滤漏判一封无关痛痒，可以全自动。常见坑：一上来就承诺全自动，结果第一次误判就把客户得罪光，项目直接被叫停。</p>
+
+    <h3>知识点 2：落位设计与边界划分</h3>
+    <p>落位设计要回答三个问题：<strong>AI 能力放在哪个层</strong>（通常是独立的 AI 网关服务，而不是塞进业务服务里，这样才能独立扩缩容和独立发布）；<strong>调用是同步还是异步</strong>（生成类任务用异步 + 通知，检索增强类可用同步但必须设短超时，一般 2-5 秒）；<strong>上下文从哪来</strong>（明确每次调用需要哪些业务字段，避免把整个订单对象塞进提示词导致 Token 爆炸和信息泄露）。</p>
+    <p>一个实用原则：<strong>AI 模块的输入输出都要有 Schema 校验</strong>。输出必须是结构化 JSON 而不是自由文本，否则下游系统根本没法消费。</p>
+
+    <h3>知识点 3：失败兜底与渐进放权</h3>
+    <p>方案里必须写清楚"AI 不可用时怎么办"。标准三件套：<strong>超时熔断</strong>（调用 AI 超过阈值就走默认逻辑）、<strong>降级策略</strong>（模型不可用时退回规则引擎或纯人工）、<strong>幂等设计</strong>（AI 重试不能产生重复业务动作）。记住这句话：用户能接受系统"变笨"，不能接受系统"变坏"。</p>
+    <p>另一个关键设计是<strong>渐进放权</strong>：上线初期置信度阈值调高（多转人工），随数据积累逐步下调，配合每周的准确率复盘。这样即使模型一开始表现一般，业务方也不会失去信心。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>以"客服工单自动分类 + 回复草稿"为例，展示 AI 网关的接口契约设计——注意 Schema 校验、置信度阈值和兜底分支：</p>
+<pre><code># ai_gateway.py —— AI 能力网关的接口契约示例（FastAPI 风格伪代码，可直接改造使用）
+from pydantic import BaseModel, Field
+from typing import Literal
+
+class ClassifyRequest(BaseModel):
+    ticket_id: str
+    text: str = Field(..., max_length=4000, description="工单正文，超长需上游截断")
+    tenant_id: str
+
+class ClassifyResponse(BaseModel):
+    category: Literal["退款", "物流", "商品咨询", "投诉"]
+    confidence: float = Field(ge=0.0, le=1.0)
+    draft_reply: str | None = None   # 置信度不足时不返回草稿
+    need_human: bool                 # 由网关根据阈值计算，业务方只认这个字段
+
+CONFIDENCE_THRESHOLD = 0.75  # 上线初期高阈值，随准确率数据逐步下调
+
+def handle(req: ClassifyRequest) -> ClassifyResponse:
+    result = llm_classify(req.text)            # 内部含 5 秒超时 + 失败重试一次
+    if result is None:                          # AI 不可用 → 降级为人工队列
+        return need_human_fallback(req.ticket_id)
+    need_human = result.confidence &lt; CONFIDENCE_THRESHOLD
+    return ClassifyResponse(**result.dict(), need_human=need_human)
+</code></pre>
+    <p>业务系统只需要消费 <strong>need_human</strong> 这一个布尔字段：为 true 就进人工队列，为 false 就应用草稿并标记分类。业务代码完全不感知模型细节，将来换模型、换阈值都不用改业务侧。</p>
+    <div class="tip">💡 提示：把"置信度阈值"做成配置中心里的动态参数，是渐进放权最便宜的实现方式。调参不用发版，出问题秒级回退。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为上一节选出的 Top 场景选择嵌入模式，写 200 字论证：为什么不是另外两种模式。</li>
+      <li><strong>任务 2</strong>：画一张落位图（可用 draw.io 或纸笔拍照），标出 AI 网关、原业务服务、数据库、人工队列四个组件及数据流向。</li>
+      <li><strong>任务 3</strong>：定义 AI 网关的请求/响应 Schema，字段不少于 5 个，包含置信度与人工兜底标记。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：写出降级方案文档一节，覆盖"模型超时""模型返回非法 JSON""配额耗尽"三种故障场景各自的处理动作。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://fastapi.tiangolo.com/" target="_blank">FastAPI 官方文档</a> — <span class="desc">用它快速搭建 AI 网关服务，自带 Pydantic 校验与交互式测试</span></li>
+      <li>📖 <a href="https://martinfowler.com/articles/patterns-legacy-displacement/" target="_blank">Patterns of Legacy Displacement</a> — <span class="desc">Martin Fowler 讲如何给老系统逐步加新能力而不推倒重来</span></li>
+      <li>📖 <a href="https://cloud.google.com/architecture/framework/reliability" target="_blank">Google Cloud — Reliability guidance</a> — <span class="desc">超时、重试、熔断的官方最佳实践参数表</span></li>
+      <li>📖 <a href="https://pair.withgoogle.com/guidebook/" target="_blank">Google — People + AI Guidebook</a> — <span class="desc">人机协同与用户信任设计的官方指南，含"保持人类掌控"原则</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清三种嵌入模式的分界线，并为自己选的模式给出理由吗？</li>
+      <li>我的方案里是否明确了 AI 不可用时系统的行为？</li>
+      <li>AI 的输出是否有结构化校验，业务侧是否可以完全不感知模型细节？</li>
+      <li>我的阈值是否做成了可动态调整的配置，而不是硬编码？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m4-1.html">← 上一节：存量系统 AI 升级需求分析与评估</a>
+    <a href="s4-m4-3.html">下一节：新旧系统数据与接口打通 →</a>
+  </div>
+
+</div>
+</body>
+</html>

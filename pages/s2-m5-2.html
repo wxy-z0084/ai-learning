@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>日志、监控与异常处理 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块五 · 企业级开发与部署 / <strong>日志、监控与异常处理</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>日志、监控与异常处理</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块五 · 企业级开发与部署</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够用标准库 <strong>logging</strong> 配置分级日志，并输出便于检索的<strong>结构化 JSON</strong> 日志。</li>
+      <li>能够为模型调用设计"异常分级 + 有限重试 + 降级"策略，区分可重试错误与不可重试错误。</li>
+      <li>能够定义关键业务指标（调用次数、延迟、token 消耗、失败率）并说明如何采集与告警。</li>
+      <li>能够给一次智能体失败排查写出完整链路：从 trace_id 到日志、指标与告警的定位路径。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：结构化日志——为检索而写</h3>
+    <p><strong>print 调试</strong>在本地可行，线上等于没有：没有时间戳、没有级别、无法按请求过滤。Python <strong>logging</strong> 提供 DEBUG/INFO/WARNING/ERROR/CRITICAL 五级与 logger 层级继承，根 logger 统一配置 handler 与 formatter 即可全局生效。企业级做法是把日志输出为<strong>一行一条的 JSON</strong>，字段固定包含 <strong>ts、level、logger、msg、trace_id、user_id、tokens、latency_ms、exc</strong>，这样可以直接被 Loki、ELK、云日志服务摄取并按字段检索。</p>
+    <p>常见坑：在库代码里配置 root logger（应只在应用入口配置一次）；日志里打印完整 prompt 导致泄露与超长（应截断并脱敏）；异常不带 <strong>exc_info=True</strong>，丢掉了堆栈。</p>
+
+    <h3>知识点 2：智能体异常分级与重试</h3>
+    <p>模型与网络调用的错误要分两类：<strong>可重试</strong>（超时、429 限流、5xx 服务端错误、连接中断）应按<strong>指数退避</strong>重试 2-3 次；<strong>不可重试</strong>（401 密钥无效、400 参数错误、内容策略拒绝）应立刻失败并告警。重试必须带上限与总超时预算，否则一次抖动会放大成雪崩。关键路径还要准备<strong>降级</strong>：模型不可用时返回缓存答案或友好提示，而不是让整个服务 500。</p>
+
+    <h3>知识点 3：指标与可观测性三支柱</h3>
+    <p>日志回答"发生了什么"，<strong>指标（Metrics）</strong>回答"现在整体怎么样"，<strong>链路追踪（Tracing）</strong>回答"慢在哪一环"。智能体服务至少暴露四类指标：<strong>QPS/请求总数、P95 延迟、模型 token 消耗、错误率</strong>，再加业务指标如"回答含引用比例"。指标通常由应用以 Prometheus 格式暴露（或经 OpenTelemetry 导出），配合 Grafana 看板与阈值告警（如 5 分钟错误率 &gt; 5% 触发通知）。<strong>trace_id 贯穿一次请求的全部日志</strong>，是排查的抓手。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：JSON 结构化日志配置，放在应用入口调用一次：</p>
+<pre><code># src/agent_hub/logging_config.py
+import datetime
+import json
+import logging
+import sys
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -&gt; str:
+        payload = {
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+            "trace_id": getattr(record, "trace_id", "-"),
+            "latency_ms": getattr(record, "latency_ms", None),
+        }
+        if record.exc_info:
+            payload["exc"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def setup_logging(level: str = "INFO") -&gt; None:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(JsonFormatter())
+    root = logging.getLogger()
+    root.handlers[:] = [handler]
+    root.setLevel(level)
+</code></pre>
+    <p>示例二：带指数退避的重试装饰器，用于包住模型调用：</p>
+<pre><code># src/agent_hub/retry.py
+import functools
+import time
+
+RETRYABLE = (TimeoutError, ConnectionError)
+
+
+def retry(times: int = 3, base_delay: float = 1.0):
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            for attempt in range(times):
+                try:
+                    return fn(*args, **kwargs)
+                except RETRYABLE as e:
+                    if attempt == times - 1:
+                        raise
+                    delay = base_delay * (2 ** attempt)
+                    time.sleep(delay)
+                    print(f"重试 {attempt + 1}/{times}，{delay}s 后再试: {e}")
+        return wrapper
+    return deco
+
+
+@retry(times=3)
+def call_llm(prompt: str) -&gt; str:
+    ...  # 真实的模型调用
+</code></pre>
+    <div class="tip">💡 提示：日志里务必带上 trace_id（可用 uuid4().hex[:8] 生成并放进 contextvar），出问题时用它串起一次请求的全部日志；401/400 这类错误重试没有意义，会白白消耗预算并触发风控。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：在你的智能体项目入口接入 setup_logging，把所有 print 替换为带上下文字段的 logger 调用，确认输出为一行一条 JSON。</li>
+      <li><strong>任务 2</strong>：实现 retry 装饰器包裹模型调用，人为注入超时与 401 两类错误，验证前者会重试、后者立即失败。</li>
+      <li><strong>任务 3</strong>：定义并记录四个核心指标（请求总数、P95 延迟、token 消耗、错误率），写出你打算如何统计与告警的方案文档（一段话即可）。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：接入 OpenTelemetry，为一次问答请求生成 trace，观察日志中的 trace_id 与 trace 查询结果是否对应。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://docs.python.org/3/library/logging.html" target="_blank">Python logging 官方文档</a> — <span class="desc">掌握 logger/handler/formatter/filter 与 logging.config 配置方式。</span></li>
+      <li>📖 <a href="https://opentelemetry.io/docs/" target="_blank">OpenTelemetry 官方文档</a> — <span class="desc">指标与链路追踪的行业标准，先读概念页再看 Python SDK。</span></li>
+      <li>📖 <a href="https://prometheus.io/docs/introduction/overview/" target="_blank">Prometheus 官方文档</a> — <span class="desc">指标采集、PromQL 查询与告警规则的入门路径。</span></li>
+      <li>📖 <a href="https://www.structlog.org/" target="_blank">structlog</a> — <span class="desc">Python 结构化日志的流行库，可作为标准 logging 的增强。</span></li>
+      <li>🛠 <a href="https://grafana.com/" target="_blank">Grafana</a> — <span class="desc">把日志、指标、追踪放在同一看板上做联动排查。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能解释为什么生产环境不能用 print，以及结构化日志的关键字段有哪些吗？</li>
+      <li>我能说出哪些错误该重试、哪些不该，以及重试为什么必须退避并设上限吗？</li>
+      <li>我能为自己的智能体列出 4 个核心指标并说明各自的告警阈值吗？</li>
+      <li>拿到一个 trace_id，我能顺着它定位到出错的那次模型调用吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m5-1.html">← 上一节：智能体工程化目录与配置管理</a>
+    <a href="s2-m5-3.html">下一节：Docker 容器化与发布流程 →</a>
+  </div>
+
+</div>
+</body>
+</html>

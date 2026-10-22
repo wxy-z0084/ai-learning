@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 接口与业务数据打通 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段五 · 传统项目智能化升级 / 模块一 · 项目集成 AI 能力 / <strong>AI 接口与业务数据打通</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段五 · 传统项目智能化升级</div>
+    <h1>AI 接口与业务数据打通</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块一 · 项目集成 AI 能力</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够选择<strong>旁路增强、嵌入主流程、异步管道</strong>三种集成模式之一，并说明选择依据。</li>
+      <li>能够完成<strong>业务字段到模型上下文</strong>的映射设计，处理脱敏、裁剪与无关字段过滤。</li>
+      <li>能够写出健壮的模型调用代码：<strong>超时、重试、JSON 校验、失败降级</strong>一个不落。</li>
+      <li>能够解释为什么"能跑通 Demo"与"能进生产"之间差的就是这层接口工程。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：三种集成模式</h3>
+    <p><strong>① 旁路增强</strong>：AI 结果作为"建议"展示给用户，由人确认后生效（如工单分类建议、邮件草稿）。风险最低、上线最快，是默认的第一选择。<strong>② 嵌入主流程</strong>：AI 输出直接驱动业务动作（如自动打标、自动路由），必须配<strong>置信度阈值</strong>与可回滚机制——低于阈值一律走人工。<strong>③ 异步管道</strong>：批量离线处理（夜间文档归档、历史数据回填），不占主链路延迟预算，用消息队列削峰并天然获得重试能力。判断口诀：<strong>错误可回退、影响面小才敢自动执行；否则先做旁路。</strong>同时明确 AI 能力在架构中的位置：建议放在独立的<strong>AI 网关/服务</strong>后，统一封装鉴权、限流、日志与模型切换，避免每个业务系统各写一遍调用。</p>
+
+    <h3>知识点 2：数据映射与上下文装配</h3>
+    <p>业务数据不是整表塞给模型，而是<strong>按提示词需要装配上下文</strong>：只取与任务相关的字段（分类任务带上工单正文即可，不需要用户身份证号）；超长文本先截断或摘要；<strong>敏感信息脱敏</strong>（手机号、银行卡打码，或改用不含 PII 的字段）；多条记录要给模型"结构边界"（用编号、分隔符或 JSON 数组），否则模型容易串行。装配逻辑应该收敛成一个<strong>显式的映射配置</strong>（业务字段 → 提示词槽位），这样字段变更时只改配置、不改代码，也便于安全评审逐字段核对。</p>
+
+    <h3>知识点 3：接口工程的四个保命项</h3>
+    <p><strong>① 超时</strong>：必须设超时且比上游链路的超时短，否则一次慢响应会拖垮整条业务链。<strong>② 重试</strong>：只对 429/5xx/网络错误重试，指数退避、次数 ≤ 3，且要做<strong>幂等</strong>（同一条工单不会被打两次标）。<strong>③ 输出校验</strong>：模型返回的是文本不是类型，必须按 JSON Schema 校验，字段枚举越界、缺失要能兜底；校验失败重试 1 次仍不行就降级。<strong>④ 降级与可观测</strong>：降级值要业务上可接受（如分类置"other"），并记录每次调用的输入摘要、输出、耗时、token 数——出问题时靠日志复现，而不是靠猜。别忘了成本护栏：<strong>限流 + 单日 token 预算</strong>，防止异常循环调用把账单打爆。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：一个生产级的<strong>工单分类调用封装</strong>（Python），含字段映射、超时、重试、JSON 校验与降级，可直接粘贴改造：</p>
+<pre><code>import json, os, time
+import httpx
+from jsonschema import ValidationError, validate
+
+# 业务字段 → 提示词槽位的显式映射（脱敏在映射阶段完成）
+FIELD_MAP = {"content": "正文", "channel": "渠道", "tags": "已有标签"}
+
+CATEGORIES = ["物流", "退款", "商品质量", "账号", "other"]
+SCHEMA = {
+    "type": "object",
+    "properties": {"category": {"enum": CATEGORIES},
+                   "summary": {"type": "string", "maxLength": 120},
+                   "confidence": {"type": "number", "minimum": 0, "maximum": 1}},
+    "required": ["category", "summary", "confidence"],
+}
+
+def build_context(ticket: dict) -> str:
+    lines = [f"{label}：{str(ticket.get(k, ''))[:500]}" for k, label in FIELD_MAP.items()]
+    return "\n".join(lines)
+
+async def classify(ticket: dict, max_retry: int = 2) -> dict:
+    payload = {"model": os.environ["AI_MODEL"], "temperature": 0.1,
+               "response_format": {"type": "json_object"},
+               "messages": [
+                   {"role": "system", "content": "你是工单分类器，只输出符合 schema 的 JSON，无法判断时 category 置 other。"},
+                   {"role": "user", "content": "待分类工单：\n" + build_context(ticket)},
+               ]}
+    fallback = {"category": "other", "summary": "自动分类失败，待人工处理", "confidence": 0.0}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:
+        for attempt in range(max_retry):
+            try:
+                r = await client.post(os.environ["AI_API_URL"], json=payload,
+                                      headers={"Authorization": f"Bearer {os.environ['AI_API_KEY']}"})
+                if r.status_code in (429, 500, 502, 503):
+                    time.sleep(0.5 * 2 ** attempt)      # 指数退避
+                    continue
+                r.raise_for_status()
+                data = json.loads(r.json()["choices"][0]["message"]["content"])
+                validate(instance=data, schema=SCHEMA)  # 结构校验
+                if data["confidence"] &lt; 0.6:            # 低置信度转人工
+                    data["category"] = "other"
+                return data
+            except (httpx.HTTPError, json.JSONDecodeError, ValidationError, KeyError):
+                if attempt == max_retry - 1:
+                    return fallback                      # 降级：业务可接受的默认值
+    return fallback</code></pre>
+    <p>示例二：日志与监控的最小埋点约定——每次调用落一条结构化日志，后续算成本、查坏例都靠它：</p>
+<pre><code>{"ts":"2026-10-19T10:31:02Z","biz":"ticket_classify","ticket_id":"T202610190031",
+ "model":"gpt-4o-mini","latency_ms":842,"prompt_tokens":612,"completion_tokens":78,
+ "ok":true,"retry":0,"fallback":false,"confidence":0.93}
+# 看板指标：P95 延迟、失败率、降级率、日 token 消耗；降级率 &gt; 2% 触发排查</code></pre>
+    <div class="tip">💡 常见坑：把整个数据库行塞进提示词。既浪费 token 又泄露隐私——字段映射表要和安全同事一起评审，明确"哪些字段永远不进模型"。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为你的场景选定集成模式（旁路/嵌入/异步），画 5 个节点以内的调用链图，标出超时时间、失败分支与降级去向。</li>
+      <li><strong>任务 2</strong>：写出业务字段 → 提示词槽位的映射表，标注每个字段是否需要脱敏、超长如何截断，并说明排除掉的字段及理由。</li>
+      <li><strong>任务 3</strong>：实现并跑通一个带超时、重试、JSON 校验、降级的调用封装（可基于示例一），构造 3 种失败用例（超时、返回非法 JSON、枚举越界）验证降级生效。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：给封装加上结构化日志与单日 token 预算上限，用日志字段设计 4 个监控指标并写出告警阈值。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://fastapi.tiangolo.com/" target="_blank">FastAPI 官方文档</a> — <span class="desc">用它给 AI 能力包一层业务友好的接口，异步调用与超时配置照着写。</span></li>
+      <li>📖 <a href="https://platform.openai.com/docs/guides/structured-outputs" target="_blank">OpenAI Structured Outputs 指南</a> — <span class="desc">让模型稳定输出可校验 JSON 的官方做法，配合 JSON Schema 使用。</span></li>
+      <li>📖 <a href="https://json-schema.org/" target="_blank">JSON Schema 官网</a> — <span class="desc">定义输出校验规则的标准，示例中的 SCHEMA 写法即遵循该规范。</span></li>
+      <li>📖 <a href="https://docs.pydantic.dev/" target="_blank">Pydantic 文档</a> — <span class="desc">Python 里做模型输出解析与校验的常用库，与 FastAPI 天然集成。</span></li>
+      <li>📖 <a href="https://www.anthropic.com/engineering/writing-tools-for-agents" target="_blank">Anthropic：为 Agent 写工具</a> — <span class="desc">讲接口契约与工具描述如何影响模型调用质量，做工具打通时值得读。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清三种集成模式的差别，并解释自己场景为何选它吗？</li>
+      <li>我的字段映射表里，每个进模型的字段都有必要性说明、每个敏感字段都脱敏了吗？</li>
+      <li>我的调用封装具备超时、有限重试、输出校验、可接受的降级值这四件事吗？</li>
+      <li>出问题时，我能只靠日志定位到是哪条输入、哪个环节失败的吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s5-m1-2.html">← 上一节：智能化升级方案设计（提示词 / RAG / 微调选型）</a>
+    <a href="s5-m1-4.html">下一节：升级效果验证与业务价值评估 →</a>
+  </div>
+
+</div>
+</body>
+</html>

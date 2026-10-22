@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>编排框架（LangGraph / CrewAI / AutoGen）· AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块三 · 多智能体开发 / <strong>编排框架（LangGraph / CrewAI / AutoGen）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>编排框架（LangGraph / CrewAI / AutoGen）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块三 · 多智能体开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说出三大编排框架的<strong>设计哲学与适用场景</strong>，为具体项目做出选型并给出理由。</li>
+      <li>能够用 LangGraph 定义 State、Node、边与条件路由，搭出一个带循环的 Agent 工作流。</li>
+      <li>能够用 CrewAI 写出 Agent + Task + Crew 配置，并跑通顺序与层级两种协作模式。</li>
+      <li>能够用 AutoGen 的 ConversableAgent/GroupChat 实现多角色会话，并加入人类审批环节。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：三大框架的定位差异</h3>
+    <p><strong>LangGraph</strong>（LangChain 团队）的抽象是<strong>状态图</strong>：State（一个可序列化的共享数据结构）、Node（执行单元，通常是函数或 LLM 调用）、Edge（固定或条件路由）。它给你的不是"开箱即用的多智能体"，而是<strong>精确控制权</strong>：任意节点可回环（生成→评审→不合格→重新生成）、支持断点续跑（checkpointer）、每一步可测试。适合对流程可靠性要求高的生产系统，代价是概念多、样板代码多。</p>
+    <p><strong>CrewAI</strong>的抽象是<strong>现实团队隐喻</strong>：Agent（角色：目标 + 背景故事 + 工具）、Task（任务：描述 + 期望输出 + 指定执行者）、Crew（团队：agents + tasks + process）。写起来最接近自然语言描述分工，几分钟能搭出原型；process 支持 sequential（流水线）与 hierarchical（层级，框架自动产生一个 manager agent 来分派）。适合快速验证"角色协作"类应用，代价是遇到细粒度控制需求（中途干预、部分失败重试）时需要跳出框架的舒适区。</p>
+    <p><strong>AutoGen</strong>（微软）的抽象是<strong>可对话智能体</strong>：ConversableAgent 之间以消息驱动对话，内置 GroupChat（多角色轮转发言 + 可指定 speaker 选择器）、代码执行器（agent 可以写代码并在沙箱里跑）、以及人类参与模式（NEVER / TERMINATE / ALWAYS 三种人类介入策略）。适合探索型、研究型任务（数据分析、代码生成研讨），其对话式收敛对生产流水线来说不够确定，需要自己加收敛控制。</p>
+
+    <h3>知识点 2：LangGraph 核心概念</h3>
+    <p>LangGraph 的世界观是"<strong>程序 = 图</strong>"。你先定义一个 TypedDict 作为 State，每个 Node 是 <code>(state) -&gt; partial_update</code> 的函数——注意返回的是<strong>增量更新</strong>（dict 合并），不是整个 State；条件边（conditional edge）根据 State 决定下一步走向哪个节点，这是实现"循环"与"分支"的关键。<code>graph.compile()</code> 后用 <code>graph.invoke({"messages": [...]}, config)</code> 运行，其中 config 里可传 <strong>thread_id</strong>，配合 checkpointer（如 SqliteSaver）实现会话状态持久化——同一个 thread_id 再次 invoke 就能续上对话，这正是下一节"共享记忆"的地基。</p>
+    <p>实践要点：State 里只放跨节点需要的数据（如 messages、current_plan、retries），局部临时变量放节点内；节点要写成<strong>纯函数化</strong>（不依赖外部可变状态），否则断点续跑会错乱；循环必须配 max_retries 或条件退出，否则编译器不拦你写出无限环。</p>
+
+    <h3>知识点 3：选型与组合使用</h3>
+    <p>选型判断题：需要精确控制流程、断点续跑、与生产可观测体系对接 → LangGraph；需要快速搭"虚拟团队"做内容生产类任务 → CrewAI；需要多智能体开会讨论、让 agent 写代码并执行、深度试验对话式协作 → AutoGen。它们并不互斥：<strong>常见组合是 LangGraph 做外层主流程编排（保证可靠与可观测），内部某个复杂环节用 CrewAI 或 AutoGen 跑一个"子协作"，把最终产物作为节点返回值吐回图中</strong>。无论用哪个框架，上一节的三件事都不会消失：停机条件、schema 校验、上下文控制——框架只是把循环和路由写起来更省事，并不替你做设计决策。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：LangGraph 实现"生成 → 评审 → 不合格自动重写"的循环（pip install langgraph langchain-openai）：</p>
+<pre><code>from typing import TypedDict, Literal
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
+from langgraph.graph import StateGraph, END
+
+llm = ChatOpenAI(model="deepseek-chat", temperature=0.2)
+
+class DraftState(TypedDict):
+    messages: list        # 对话消息列表，充当本流程的共享状态
+    feedback: str         # 上一轮评审意见
+    attempts: int         # 重试计数，防无限循环
+
+def generate(state: DraftState) -> DraftState:
+    last = state.get("feedback", "")
+    prompt = [SystemMessage("你是技术撰稿人，输出 200 字技术短文。"),
+              HumanMessage(f"主题：消息队列选型要点。"
+                           + (f"\n上一版评审意见，必须逐条修正：{last}" if last else ""))]
+    reply = llm.invoke(prompt)
+    return {"messages": [reply], "feedback": "", "attempts": state["attempts"] + 1}
+
+def review(state: DraftState) -> dict:
+    draft = state["messages"][-1].content
+    verdict = llm.invoke([SystemMessage(
+        "你是严格评审。若文本缺少可验证数据或超过 220 字，输出问题清单；否则输出 OK。"),
+        HumanMessage(draft)]).content
+    return {"feedback": "" if verdict.strip() == "OK" else verdict}
+
+def route(state: DraftState) -> Literal["generate", "END"]:
+    if not state["feedback"] and state["attempts"] &gt;= 1:
+        return END                                     # 评审通过
+    if state["attempts"] &gt;= 3:
+        return END                                     # 停机条件：三次封顶
+    return "generate"                                  # 不合格：回到生成节点
+
+g = StateGraph(DraftState)
+g.add_node("generate", generate)
+g.add_node("review", review)
+g.set_entry_point("generate")
+g.add_edge("generate", "review")
+g.add_conditional_edges("review", route, {"generate": "generate", END: END})
+app = g.compile()
+
+result = app.invoke({"messages": [HumanMessage("写短文")], "feedback": "", "attempts": 0})
+print(result["messages"][-1].content, "| 尝试次数:", result["attempts"])</code></pre>
+    <div class="tip">💡 LangGraph 的 add_conditional_edges 是"循环"的唯一正规入口；调试时用 <code>app.get_graph().print_ascii()</code> 打印图结构，先确认拓扑再调 prompt——八成的"流程跑飞"其实是图连错了，不是模型不行。</div>
+    <p>示例二：CrewAI 用 YAML 配置角色与任务（crewai 配置即代码，便于非程序员协作维护）：</p>
+<pre><code># config/agents.yaml —— 角色定义
+researcher:
+  role: "消息队列领域研究员"
+  goal: "收集 RabbitMQ 与 Kafka 的可验证事实"
+  backstory: "你是有 8 年中间件经验的工程师，只陈述带来源的事实，不下结论。"
+writer:
+  role: "技术专栏撰稿人"
+  goal: "基于给定事实写一篇对比短文"
+  backstory: "你只能引用材料中的事实，不得编造数字。"
+
+# config/tasks.yaml —— 任务定义
+research_task:
+  description: "调研 RabbitMQ 与 Kafka 在吞吐、顺序性、运维三方面的差异"
+  expected_output: "Markdown 表格，每个单元格注明来源"
+  agent: researcher
+write_task:
+  description: "把研究表格改写成 300 字对比短文"
+  expected_output: "300 字 Markdown 短文"
+  agent: writer</code></pre>
+<pre><code># main.py —— 顺序执行的 crew
+from crewai import Agent, Task, Crew, Process
+import yaml
+
+cfg_a = yaml.safe_load(open("config/agents.yaml", encoding="utf-8"))
+cfg_t = yaml.safe_load(open("config/tasks.yaml", encoding="utf-8"))
+
+researcher = Agent(**cfg_a["researcher"], allow_delegation=False, verbose=True)
+writer     = Agent(**cfg_a["writer"], allow_delegation=False, verbose=True)
+
+t1 = Task(**cfg_t["research_task"])
+t2 = Task(**cfg_t["write_task"])
+
+crew = Crew(agents=[researcher, writer], tasks=[t1, t2],
+            process=Process.sequential,   # 改 Process.hierarchical 让框架自动产生 manager
+            memory=True)                  # 开启任务间记忆共享
+result = crew.kickoff()
+print(result)</code></pre>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：跑通示例一，故意让评审节点"永远不通过"，确认 attempts=3 的停机条件生效；再用 SqliteSaver 加 checkpointer，验证同 thread_id 的断点续跑。</li>
+      <li><strong>任务 2</strong>：按示例二搭一个两角色 CrewAI 团队，先 sequential 跑通，再改成 hierarchical 观察 manager 如何分派任务（开 verbose 看日志）。</li>
+      <li><strong>任务 3</strong>：用 AutoGen 实现一个 GroupChat：researcher、writer、critic 三个 ConversableAgent 讨论同一主题，设 max_round=6，记录收敛轮数与 token 消耗。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：写一页选型报告：把"客服工单自动分流"这个场景分别交给三个框架设计，选出最终方案并说明另外两个为什么落选。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://langchain-ai.github.io/langgraph/" target="_blank">LangGraph 官方文档</a> — <span class="desc">Core Concepts 章节（State/Node/Edge/Checkpointer）是本节示例一的出处，必读。</span></li>
+      <li>📖 <a href="https://www.crewai.com" target="_blank">CrewAI 官网</a> — <span class="desc">官方文档含 agents.yaml/tasks.yaml 配置规范与 hierarchical 流程说明。</span></li>
+      <li>📖 <a href="https://microsoft.github.io/autogen/" target="_blank">AutoGen 官方文档</a> — <span class="desc">GroupChat、代码执行与人类参与（human-in-the-loop）的完整示例。</span></li>
+      <li>📖 <a href="https://github.com/langchain-ai/langgraph" target="_blank">LangGraph GitHub</a> — <span class="desc">examples 目录有 supervisor、plan-and-execute 等经典拓扑的完整代码。</span></li>
+      <li>📖 <a href="https://python.langchain.com/docs/" target="_blank">LangChain 官方文档</a> — <span class="desc">模型接入、工具定义、消息类型的公共基础，配合 LangGraph 一起看。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能用一句话分别概括三个框架的抽象（图 / 团队 / 会话）与它们各自最擅长的场景吗？</li>
+      <li>我的 LangGraph 里条件边如何防死循环？State 里放的是不是真正跨节点需要的数据？</li>
+      <li>如果框架明天停止维护，我的业务逻辑（角色、任务、流程）能否低成本迁移到另一个框架？</li>
+      <li>我实际测过三个框架在同一个任务上的 token 成本与收敛轮数吗？数据是多少？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m3-2.html">← 上一节：智能体间通信与协作机制</a>
+    <a href="s4-m3-4.html">下一节：共享记忆与状态管理 →</a>
+  </div>
+
+</div>
+</body>
+</html>

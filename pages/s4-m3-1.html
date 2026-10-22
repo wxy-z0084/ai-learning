@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多智能体角色分工与任务规划 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块三 · 多智能体开发 / <strong>多智能体角色分工与任务规划</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>多智能体角色分工与任务规划</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块三 · 多智能体开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够判断一个任务<strong>该用单智能体还是多智能体</strong>，说明多智能体的收益与代价（token 成本、协调复杂度、失败放大）。</li>
+      <li>能够按"<strong>能力互补、上下文隔离、职责单一</strong>"三原则拆分角色，并写出职责清晰的角色提示词。</li>
+      <li>能够把一个模糊需求拆成带依赖关系的子任务列表（Plan），并确定执行模式（顺序 / 并行 / 层级）。</li>
+      <li>能够识别常见的分工失败模式（角色重叠、目标漂移、无人负责收口）并给出修正方案。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：为什么需要多智能体</h3>
+    <p>单智能体（一个 LLM + 工具循环）能解决大多数问题，但有三个天花板：<strong>上下文窗口有限</strong>——一个角色既要调研需求又要写代码还要评审，几轮之后早期信息被挤出窗口；<strong>提示词冲突</strong>——"激进创新"与"严格保守"两种指令塞进同一个 system prompt 会互相稀释；<strong>缺乏批判视角</strong>——生成者与检查者是同一个模型实例时，自检很容易"自己给自己放行"。</p>
+    <p>多智能体通过<strong>拆分上下文</strong>（每个角色只持有自己需要的信息）、<strong>拆分立场</strong>（生成者负责提出方案，评审者负责挑错）、<strong>并行加速</strong>（互不依赖的子任务同时执行）来突破这些天花板。但代价是实打实的：token 消耗通常放大 3-10 倍，端到端延迟变长，调试难度从"看一段对话"变成"看一张协作图"。判断标准：<strong>任务能否拆成边界清晰、接口明确的子任务</strong>——能，则多智能体有收益；不能（高度耦合的推理链），不如把预算花在更强的单模型或更长的思考链上。</p>
+
+    <h3>知识点 2：角色分工的三条原则</h3>
+    <p><strong>原则一：能力互补而非复制。</strong>常见有效角色组合——产品经理（需求澄清、验收标准）、领域专家/研究员（事实与方案）、工程师/编码者（产出物）、评审员（质量把关）、协调者（Planner/Supervisor，只规划不产出）。不要设三个"程序员"角色，除非你在做"竞争方案投票"（这是刻意为之的冗余，后面模块会讲）。</p>
+    <p><strong>原则二：上下文隔离。</strong>每个角色的提示词只给它该知道的：编码者不该看到全部调研过程的冗余对话，评审者不该看到编码者的"心路历程"以免被带偏，只给最终产物与验收标准。信息以"交付物"形式传递，而不是把整段聊天记录转发——这既是成本优化，也是质量保障。</p>
+    <p><strong>原则三：职责单一且有明确产出格式。</strong>每个角色的 system prompt 必须回答四件事：你是谁（立场）、你负责什么（边界）、你不做什么（禁止越界，如"不要替评审员提前修改方案"）、你的输出长什么样（结构化格式：JSON、Markdown 章节、检查清单）。<strong>产出格式是协作的接口契约</strong>——下游角色解析的是格式，而不是自由发挥的自然语言。</p>
+
+    <h3>知识点 3：任务规划与依赖管理</h3>
+    <p>规划阶段的核心产物是一张<strong>子任务图</strong>：节点是任务（含输入/输出/完成标准），边是依赖关系（A 产出的文档是 B 的输入）。执行模式按依赖结构选择：<strong>顺序</strong>（流水线，适合强依赖）、<strong>并行</strong>（扇出，适合独立子问题，如同时调研三个竞品）、<strong>层级</strong>（Supervisor 把任务分派给 Worker，汇总后再分派下一轮，适合迭代式任务）。粒度控制的原则是<strong>一个子任务 = 一次可验证的产出</strong>："研究 Kafka"不是任务（无法判定完成），"输出一份 Kafka 与 RabbitMQ 的对比表，含吞吐/顺序性/运维三项指标"才是。</p>
+    <p>规划要预留<strong>失败路径</strong>：子任务失败后是重试（换提示词）、降级（缩小任务范围）还是上报（交给人）？常见坑有两个：一是<strong>过度规划</strong>——简单任务硬拆成 7 个角色，协调开销超过任务本身；二是<strong>目标漂移</strong>——每个角色只优化自己的局部目标，最后汇总时才发现方向偏了，因此规划时必须在最顶层写死"总目标 + 最终验收标准"，并让每个角色都能看到它。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：一个"竞品分析报告"任务的角色卡（YAML 格式，可作为框架的角色配置，也可直接贴进提示词工程工具）：</p>
+<pre><code>roles:
+  planner:            # 协调者：只规划、分派、汇总，不写正文
+    goal: "把『为我们的客服系统生成竞品分析报告』拆成可执行子任务"
+    backstory: >
+      你是资深技术项目经理，擅长把模糊需求拆成边界清晰的任务，
+      输出任务列表时必须给出每个任务的输入、输出与完成标准。
+    output_format: "JSON 数组，每项含 id/title/input/output/depends_on/assignee"
+
+  researcher:         # 研究员：只调研，不写建议
+    goal: "按分配的竞品收集功能、定价、目标客户三类事实"
+    constraints:
+      - "只陈述可验证事实，每条附来源"
+      - "禁止输出对比结论或推荐——那是分析师的工作"
+    output_format: "Markdown 表格，列：字段/事实/来源URL"
+
+  analyst:            # 分析师：只做对比与洞察，不重新调研
+    goal: "基于研究员的表格输出差异化对比与机会点"
+    constraints:
+      - "只允许引用任务输入中的事实，不得自行补充数据"
+      - "每个洞察必须标注支撑它的事实编号"
+
+  reviewer:           # 评审员：按验收标准挑错，不代写
+    goal: "检查报告是否满足验收标准，输出问题清单"
+    output_format: "JSON {pass: bool, issues: [{severity, section, problem}]}"
+
+acceptance_criteria:  # 顶层验收标准，每个角色的提示词里都要带上
+  - "覆盖至少 3 个竞品"
+  - "每条事实有来源，无来源的洞察占比为 0"
+  - "结论区分『事实』与『推断』两类标注"</code></pre>
+    <p>示例二：把规划产物固化成 Python 任务结构（后续接编排框架时直接映射为图的节点与边）：</p>
+<pre><code>from dataclasses import dataclass, field
+
+@dataclass
+class SubTask:
+    id: str
+    title: str
+    assignee: str                      # 对应 roles 中的角色名
+    input_spec: str                    # 输入契约：需要上游哪些字段
+    output_spec: str                   # 输出契约：产出必须包含什么
+    depends_on: list = field(default_factory=list)
+    retry: int = 2                     # 失败重试次数，超限上报人工
+
+plan = [
+    SubTask("T1", "拆解报告结构并生成子任务清单", "planner",
+            input_spec="用户需求原文", output_spec="JSON 任务数组"),
+    SubTask("T2", "调研竞品 A", "researcher",
+            input_spec="T1 任务定义", output_spec="Markdown 事实表格",
+            depends_on=["T1"]),
+    SubTask("T3", "调研竞品 B", "researcher",          # T2/T3 可并行
+            input_spec="T1 任务定义", output_spec="Markdown 事实表格",
+            depends_on=["T1"]),
+    SubTask("T4", "汇总对比与机会点", "analyst",
+            input_spec="T2+T3 事实表格", output_spec="对比章节 + 洞察列表",
+            depends_on=["T2", "T3"]),
+    SubTask("T5", "按验收标准评审", "reviewer",
+            input_spec="完整报告草稿", output_spec="JSON 评审结论",
+            depends_on=["T4"]),
+]
+
+def ready_tasks(done: set):
+    """返回依赖已满足、可立即执行的任务——这就是最朴素的调度器"""
+    return [t for t in plan if t.id not in done
+            and set(t.depends_on) &lt;= done]</code></pre>
+    <div class="tip">💡 0.5 天的建议节奏：前 2 小时吃透三原则并把你手头一个真实需求拆成角色卡与任务图（纸面即可）；后 2 小时用示例二写调度器跑通顺序/并行两种模式。下一天的"智能体间通信"会在此基础上加消息协议。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：选一个你工作中的真实需求（如"输出一份技术选型报告"），写出 planner/researcher/analyst/reviewer 四张角色卡，每张包含立场、边界、禁止事项、输出格式。</li>
+      <li><strong>任务 2</strong>：运行示例二的调度器，先构造依赖满足的场景验证 ready_tasks 返回并行任务（T2、T3），再模拟 T2 失败重试与超限上报的分支。</li>
+      <li><strong>任务 3</strong>：把角色卡丢给真实 LLM 逐个跑通：先只跑 planner，检查它输出的任务 JSON 能否被你的解析器正确读取（格式契约是否成立）。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：故意制造一次"角色重叠"（让 researcher 也输出建议）并观察汇总结果的质量下降，写下你观察到的具体失败现象。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://www.anthropic.com/engineering/building-effective-agents" target="_blank">Building Effective Agents（Anthropic）</a> — <span class="desc">何时用工作流、何时用多智能体的判断框架，官方工程实践文章。</span></li>
+      <li>📖 <a href="https://www.crewai.com" target="_blank">CrewAI 官网</a> — <span class="desc">以"角色（Agent）+ 任务（Task）+ 团队（Crew）"为核心的多智能体框架，与本节的角色分工思想完全对应。</span></li>
+      <li>📖 <a href="https://microsoft.github.io/autogen/" target="_blank">AutoGen 官方文档</a> — <span class="desc">微软的多智能体对话框架，其 ConversableAgent 与会话模式是理解角色协作的经典参考。</span></li>
+      <li>📖 <a href="https://arxiv.org/abs/2308.08155" target="_blank">AutoGen 论文（arXiv:2308.08155）</a> — <span class="desc">多智能体对话范式的学术来源，读第 3 节的角色设计与会话模式。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能用一句话说清每个角色"不做什么"吗？说不出禁止边界的多半是职责重叠。</li>
+      <li>我的每个子任务都有可判定的完成标准和输出格式契约吗？</li>
+      <li>任务依赖图里有没有环？有没有谁对最终产出负责（收口者）？</li>
+      <li>如果让我把这个方案降级回单智能体，我知道会失去什么、保留什么吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m2-5.html">← 上一节：高可用与容灾设计</a>
+    <a href="s4-m3-2.html">下一节：智能体间通信与协作机制 →</a>
+  </div>
+
+</div>
+</body>
+</html>

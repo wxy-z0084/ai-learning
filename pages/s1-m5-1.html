@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>零代码/低代码智能体搭建流程 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块五 · AI 智能体快速开发 / <strong>零代码/低代码智能体搭建流程</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>零代码/低代码智能体搭建流程</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块五 · AI 智能体快速开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说清<strong>智能体（Agent）与普通聊天机器人</strong>的区别，理解其四要素：模型、提示词、知识库、工具。</li>
+      <li>能够按<strong>创建 Bot → 写人设 → 挂技能 → 建知识库 → 调试 → 发布</strong>的完整流程搭出一个可用智能体。</li>
+      <li>能够配置知识库的<strong>分段、召回与命中测试</strong>，让回答有据可依。</li>
+      <li>能够使用<strong>调试预览与日志</strong>定位提示词、知识库、插件三类问题。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：智能体的四个组成部分</h3>
+    <p>零代码平台上的智能体，本质上是给大模型套上四层配置：<strong>模型</strong>决定智力上限（复杂推理选旗舰模型，简单客服可选轻量模型以省成本）；<strong>提示词</strong>定义角色、任务流程与输出格式；<strong>知识库</strong>提供模型原本不知道的私有资料（产品手册、价目表、规章制度）；<strong>工具/插件</strong>赋予它动手能力（查库、下单、发邮件、生成图片）。四者职责清晰，调试时才能对症下药：答不上来是知识库问题，答得离谱是提示词问题，说要查却没查是工具配置问题。</p>
+
+    <h3>知识点 2：人设提示词的骨架</h3>
+    <p>可用的智能体提示词通常包含五块：<strong>角色与目标</strong>（你是谁、服务谁、衡量标准是什么）、<strong>能力边界</strong>（能做什么、遇到什么问题该拒答或转人工）、<strong>工作流程</strong>（先澄清再回答、先查知识库再作答）、<strong>输出格式</strong>（字数、结构、是否带引用来源）、<strong>语气规范</strong>（称呼、禁用语）。其中<strong>边界条款最能防止翻车</strong>——明确写"涉及具体赔偿金额一律引导转人工"，比事后补救省一百倍。</p>
+
+    <h3>知识点 3：知识库的分段与召回</h3>
+    <p>知识库的作用机制是 RAG：上传文档 → 切成片段并生成向量 → 提问时检索最相关的几段 → 拼进提示词让模型作答。因此<strong>切分质量直接决定回答质量</strong>。实操要点：按语义分段而非固定字数硬切（200-500 字一段较合适）；给每段配准确的标题与关键词；文档更新后重新上传并<strong>做命中测试</strong>——用真实用户问题逐条验证能否召回正确段落。召回不稳时，优先调整分段与检索条数，而不是急着换模型。</p>
+    <div class="tip">💡 上线前用"红队思维"试一遍：越界问题、诱导泄露系统提示词、要求给出不存在的信息——看智能体是否按边界条款稳住。</div>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一是一份可直接粘贴到 Coze Bot「人设与回复逻辑」的<strong>完整提示词骨架</strong>（以咖啡店点单助手为例）：</p>
+<pre><code># 角色
+你是「晨光咖啡」的点单助手小晨，帮助顾客了解菜单、推荐饮品、引导下单。
+
+# 目标
+让顾客在 3 轮对话内完成点单意向确认；推荐要基于知识库中的在售商品。
+
+# 工作流程
+1. 先问清需求：堂食/外带、杯型、是否含咖啡因；
+2. 用知识库检索菜单与活动，再作推荐，禁止凭记忆编造商品；
+3. 顾客确认后，输出订单摘要：商品、杯型、数量、预计取餐时间。
+
+# 能力边界
+- 涉及退款、投诉、发票，一律回复转人工电话 400-xxx-xxxx；
+- 菜单上没有的商品，直接说明"暂未上架"，不要虚构；
+- 不回答与点单无关的话题，礼貌引导回正题。
+
+# 输出格式
+- 全文口语化，单次不超过 120 字，不使用表格；
+- 推荐时最多给 2 个选项，并说明推荐理由。
+</code></pre>
+    <p>示例二是知识库文档整理时的<strong>分段对照</strong>，说明好坏差异：</p>
+<pre><code>❌ 差的分段（机械按字数硬切，语义被截断）：
+"……拿铁使用双份浓缩，奶泡厚度约 1 厘米，口感绵密，适合搭配甜点；焦糖玛"
+（下一段开头是"奇朵……"）
+
+✅ 好的分段（按语义切分，每段自带标题与关键词）：
+【商品：拿铁】双份浓缩 + 蒸奶，奶泡约 1cm，口感绵密，推荐搭配曲奇。
+关键词：拿铁 latte 含咖啡因 热饮 冷饮
+【商品：焦糖玛奇朵】浓缩 + 蒸奶 + 焦糖淋酱，甜度较高。
+关键词：玛奇朵 macchiato 甜 含咖啡因
+</code></pre>
+    <div class="tip">💡 提示：每段自带标题与关键词，检索命中率会明显提升——这相当于给向量检索加了"路标"。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：在 Coze 创建一个新 Bot，按五块骨架写好人设提示词，在预览框里验证角色是否稳定。</li>
+      <li><strong>任务 2</strong>：上传一份你熟悉的资料（产品说明/规章制度）到知识库，用 5 个真实问题做命中测试并记录命中率。</li>
+      <li><strong>任务 3</strong>：设计 3 个越界问题（要折扣、要转人工、编造商品），验证边界条款是否生效，据此修改提示词。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：给智能体挂载一个插件（如天气或搜索），让它在需要时调用，并观察日志中的调用轨迹。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://www.coze.cn/docs" target="_blank">Coze 官方文档</a> — <span class="desc">Bot 创建、提示词、知识库、插件配置的完整手册。</span></li>
+      <li>📖 <a href="https://www.coze.cn/docs/guides/agent_ug" target="_blank">Coze 智能体使用指南</a> — <span class="desc">官方对智能体搭建流程与最佳实践的分步讲解。</span></li>
+      <li>📖 <a href="https://docs.dify.ai" target="_blank">Dify 官方文档</a> — <span class="desc">另一主流低代码 AI 应用平台，便于对照理解编排范式。</span></li>
+      <li>📖 <a href="https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/be-clear-and-direct" target="_blank">Anthropic 提示工程：清晰直接</a> — <span class="desc">写人设提示词时的表达原则，可直接借鉴。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能画出智能体四要素（模型/提示词/知识库/工具）的关系图吗？</li>
+      <li>我的提示词是否包含角色、边界、流程、格式、语气五块内容？</li>
+      <li>我上传知识库后是否做过真实问题的命中测试并据此优化分段？</li>
+      <li>我能否用调试日志说清一次回答"为什么是这个结果"？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m4-4.html">← 上一节：自然语言驱动的快速迭代开发</a>
+    <a href="s1-m5-2.html">下一节：智能体场景选题与需求拆解 →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>语音识别与合成应用 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块三 · 多模态应用搭建 / <strong>语音识别与合成应用</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>语音识别与合成应用</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块三 · 多模态应用搭建</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够解释 <strong>ASR（语音识别）与 TTS（语音合成）</strong> 在应用中的位置与各自输入输出。</li>
+      <li>能够在 Coze 或 API 平台上接入语音识别，把用户的语音消息转成文本供大模型处理。</li>
+      <li>能够为应用配置语音合成输出，控制<strong>音色、语速与断句</strong>。</li>
+      <li>能够针对识别错字、数字读法、中英文混杂等问题给出<strong>可落地的优化手段</strong>。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：语音应用的三段流水线</h3>
+    <p>一个完整的语音交互应用由三段组成：<strong>前端采集 → ASR → 大模型 → TTS → 播放</strong>。语音识别（ASR）负责把音频波形转成文字，语音合成（TTS）把文字还原成音频。大模型本身只处理文本（多模态模型也多以文本+图像为主），所以"会说话的应用"本质上是把 ASR 和 TTS 接在语言模型两侧的管道工程。理解这一点，你就能把任何纯文本应用快速改造成语音应用。</p>
+    <p>音频输入常见格式有 wav（无损、体积大）、mp3/m4a（压缩、适合传输）、opus（实时通话常用）。采样率 16kHz 是识别任务的常见基准，过高不会提升准确率，只会浪费带宽。</p>
+
+    <h3>知识点 2：在 Coze 中接入语音识别</h3>
+    <p>Coze 支持在 Bot 中直接接收语音消息：用户在对话框按住录音，平台自动调用<strong>语音转文本能力</strong>后，把文字送进你的提示词流程。你要做的配置通常包括：在 Bot 设置里允许语音输入、选择识别语言（中文/英文/中英混合）、必要时挂载"语音转文字"插件处理工作流里的音频 URL。</p>
+    <p>常见坑：<strong>识别结果没有标点</strong>会导致下游提示词断句混乱——解决办法是在提示词中要求模型先补标点再作答；<strong>专业术语识别错误</strong>（如"Redis"被听成"redis"）可用热词表或在提示词中给出术语对照表纠正。</p>
+
+    <h3>知识点 3：语音合成的控制要点</h3>
+    <p>TTS 的效果由三个参数决定：<strong>音色（speaker/voice）</strong>决定谁在说话，<strong>语速（speed/rate）</strong>决定信息密度，<strong>音量与停顿</strong>决定听感。面向客服场景选沉稳中性音色、语速 1.0；面向播报与教学可放慢到 0.9 并在句读处留白。生成的音频通常是 mp3 URL，前端播放或直接在聊天卡片中播放即可。</p>
+    <p>另一个关键是<strong>文本清洗</strong>：数字"2026"、货币"¥99"、网址、代码片段直接朗读会很怪。工程上常用规则把这些符号转成可读文本（"二千零二十六"、"九十九元"），或在提示词里禁止 TTS 朗读原始代码。</p>
+    <div class="tip">💡 语音应用的延迟 = 录音上传 + ASR + 模型推理 + TTS。想降低体感延迟，优先做"边听边识别"和"流式合成"，其次才是换更快的模型。</div>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>第一个示例是可粘贴的<strong>语音场景提示词</strong>，专门处理 ASR 送来的"裸文本"：</p>
+<pre><code>你在为一个语音助手工作，输入来自语音识别，可能没有标点、存在同音错字。
+
+处理规则：
+1. 先按语义补全标点，还原成规范书面句；
+2. 常见同音纠错：布隆过滤→布隆过滤器、my sql→MySQL、接口限流→接口限流（保持专业术语）；
+3. 无法确定的词保留原样并在答案末尾用（?）标注；
+4. 回答必须口语化、短句为主，单句不超过 20 字；
+5. 不要输出 Markdown 表格和代码块，因为结果会再转成语音。
+</code></pre>
+    <p>第二个示例是把文本送到 TTS 的<strong>典型请求结构</strong>（以主流开放平台的通用字段为例，使用时按你所选服务商文档替换字段名）：</p>
+<pre><code>{
+  "model": "tts-1",
+  "voice": "alloy",
+  "input": "您好，订单已发货，预计明天下午送达。",
+  "response_format": "mp3",
+  "speed": 1.0
+}
+</code></pre>
+    <div class="tip">💡 提示：把上面的 input 换成大模型生成的回复文本，就能得到"会说话"的应用。注意长文本要按句切分后分段合成，再拼接音频，避免超长文本被截断。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：在 Coze 创建一个支持语音输入的 Bot，用手机录音提问，记录识别结果与你原话的差异（错字、缺标点各多少处）。</li>
+      <li><strong>任务 2</strong>：为该 Bot 配置语音回复（或用 TTS 插件），指定一种音色与 0.9 语速，对比不同音色的听感。</li>
+      <li><strong>任务 3</strong>：准备一段含数字、网址、英文术语的文本，观察直接合成的问题，并写出你的文本清洗规则清单。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：把上一节的图片理解 Bot 改造成"语音描述图片"：语音提问 → ASR → 图片理解 → TTS 播报。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://www.coze.cn/docs" target="_blank">Coze 官方文档</a> — <span class="desc">查看 Bot 语音输入、语音插件与工作流音频节点的配置方法。</span></li>
+      <li>📖 <a href="https://platform.openai.com/docs/guides/speech-to-text" target="_blank">OpenAI 语音识别指南</a> — <span class="desc">讲解音频格式、分段与识别参数的通用规范。</span></li>
+      <li>📖 <a href="https://platform.openai.com/docs/guides/text-to-speech" target="_blank">OpenAI 语音合成指南</a> — <span class="desc">音色、语速、输出格式的官方说明，适合照着调参。</span></li>
+      <li>📖 <a href="https://platform.moonshot.cn/docs" target="_blank">Moonshot 开放平台文档</a> — <span class="desc">国内可访问的 API 文档样例，便于对照理解请求结构。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能画出"语音 → 文本 → 模型 → 文本 → 语音"的完整数据流吗？</li>
+      <li>我知道 ASR 常见问题（错字、无标点、专业词）各自对应的解决手段吗？</li>
+      <li>我能说出控制 TTS 听感的三个参数并解释其取值影响吗？</li>
+      <li>我已完成至少一次真实的语音输入与语音输出联调吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m3-1.html">← 上一节：文本 + 图像输入输出处理</a>
+    <a href="s1-m3-3.html">下一节：多模态大模型（图文理解）调用 →</a>
+  </div>
+
+</div>
+</body>
+</html>

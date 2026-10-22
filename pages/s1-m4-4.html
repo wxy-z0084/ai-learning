@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自然语言驱动的快速迭代开发 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块四 · Vibe Coding / <strong>自然语言驱动的快速迭代开发</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>自然语言驱动的快速迭代开发</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块四 · Vibe Coding</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够设计<strong>以小时为单位</strong>的迭代节奏，把大需求切成可验证的小步。</li>
+      <li>能够用自然语言描述"增量变更"，让每轮修改<strong>只动必要的代码</strong>。</li>
+      <li>能够利用分支、提交与回滚机制<strong>安全地试错</strong>，不惧怕 AI 改坏代码。</li>
+      <li>能够为一个从零到一的小项目，产出一份完整的<strong>迭代日志</strong>并复盘效率收益。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：小步迭代优于一次成型</h3>
+    <p>Vibe Coding 的正确姿势不是"一句话生成整个系统"，而是<strong>把目标拆成 30-60 分钟能验证的最小增量</strong>。例如做一个待办应用：第一轮只做"命令行添加/列出"，第二轮加"完成标记"，第三轮加"持久化到文件"，第四轮加"按日期筛选"。每一轮结束时，你都应该有一个<strong>能运行、能演示</strong>的版本。这样即使某轮 AI 跑偏，损失也被锁定在一轮之内，回滚即可。</p>
+    <p>拆分的标准是"可验证性"而非"代码量"：能用一条命令或一次点击验证的，就是合适的一轮；需要跑三个服务、造五种数据才能验证的，说明还是太大。</p>
+
+    <h3>知识点 2：用增量语言描述变更</h3>
+    <p>描述变更时，要让 AI 清楚"改哪里、不改哪里"。推荐的句式是：<strong>"在保持 X 不变的前提下，为 Y 增加 Z"</strong>。例如"在保持现有 CSV 存储格式不变的前提下，为 list 命令增加 --done 过滤参数"。再配合明确的完成定义（"完成标准：python todo.py list --done 只显示已完成项"），模型就不容易顺手重构你没让它动的地方。</p>
+    <p>反过来，如果这轮确实要动接口，就<strong>主动声明破坏性变更</strong>："本轮允许修改 parse_args 的签名，其他模块请勿改动"。模糊的边界是 AI 大面积改写代码的主要诱因。</p>
+
+    <h3>知识点 3：用版本控制兜底，用日志沉淀</h3>
+    <p>快速迭代的前提是可回退。最简单的纪律：<strong>每轮迭代开始建分支，验证通过就合并提交，提交信息写清这轮做了什么</strong>。当 AI 把代码改乱，你能用一条命令回到上一轮，而不是在废墟上继续对话。同时保留一份<strong>迭代日志</strong>（日期、目标、关键指令、结果、遗留问题），它既是复盘素材，也是下次开新会话时最好的上下文材料。迭代足够多次后，你会发现 AI 的失败模式高度重复，日志能帮你把它们变成检查清单。</p>
+    <div class="tip">💡 一个实用习惯：每轮结束让 AI 用三句话总结"这轮改了什么、没改什么、下一步建议"，你把这段话存进迭代日志，下一轮直接作为开场上下文。</div>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例是一个小型 CLI 待办工具的<strong>第 1 轮迭代指令</strong>与对应产出目标，你可以照此节奏推进后续每一轮：</p>
+<pre><code>【第 1 轮：最小可用】
+目标：做一个纯命令行待办工具，只支持添加与列出，数据存 todo.json。
+
+要求：
+1. 单文件 todo.py，仅使用标准库（argparse、json、pathlib）；
+2. 命令：add "任务内容"、list；
+3. 每条记录包含 id、content、done、created_at 四个字段；
+4. 文件不存在时自动创建，list 输出用编号对齐；
+5. 不要加入任何本轮未要求的功能（如删除、编辑、颜色）。
+
+完成标准：依次运行以下命令并贴出输出——
+python todo.py add "写周报" && python todo.py add "订机票" && python todo.py list
+</code></pre>
+    <p>后续每一轮只需替换【目标】【要求】并沿用同样的完成标准结构，例如第 3 轮：</p>
+<pre><code>【第 3 轮：持久化与迁移】
+目标：把内存/临时存储改为 todo.json 文件持久化，并兼容旧数据。
+
+保持不变：add 与 list 的命令行接口、输出格式。
+
+要求：
+1. 新增 load/save 两个函数，读写失败时给出明确报错而不是静默崩溃；
+2. 旧文件缺少 done 字段时默认为 false，不要求用户手工迁移；
+3. 完成标准：删除 todo.json 后执行 add 两条，重启进程执行 list 仍能看到 2 条记录。
+</code></pre>
+    <div class="tip">💡 提示："不要加入本轮未要求的功能"这句话非常重要。AI 爱一次做多，而过度生成是迭代失控的起点。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：把你手头一个待开发的小功能切成 4 轮以内的迭代计划，每轮写清目标、保持不变项与完成标准。</li>
+      <li><strong>任务 2</strong>：按上面的节奏用自然语言驱动 AI 完成待办工具的前 3 轮迭代，每轮跑通完成标准后再进入下一轮。</li>
+      <li><strong>任务 3</strong>：故意在某一轮给出模糊需求，观察 AI 的改写范围，然后用"保持 X 不变"句式重做一次并对比 diff。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：完整记录 5 轮迭代日志（目标/指令/结果/遗留问题），复盘哪些指令让你返工、哪些一次通过。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://docs.cursor.com/agent/overview" target="_blank">Cursor Agent 概览</a> — <span class="desc">了解如何用自然语言驱动多文件修改与命令执行。</span></li>
+      <li>📖 <a href="https://docs.github.com/en/copilot/using-github-copilot/coding-agent" target="_blank">GitHub Copilot Coding Agent</a> — <span class="desc">在 PR 中托管 AI 代理完成整块任务，适合观察"整轮迭代"形态。</span></li>
+      <li>📖 <a href="https://git-scm.com/book/zh/v2" target="_blank">《Pro Git》中文版</a> — <span class="desc">分支与回滚是安全迭代的地基，重点读分支与撤销两章。</span></li>
+      <li>📖 <a href="https://docs.anthropic.com/en/docs/claude-code/memory" target="_blank">Claude Code 记忆机制</a> — <span class="desc">了解如何让 AI 跨会话记住项目约定与迭代状态。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能把一个需求切成"每轮可验证"的小步，并写出完成标准吗？</li>
+      <li>我是否养成了"保持 X 不变，为 Y 增加 Z"的增量描述习惯？</li>
+      <li>我是否在每轮迭代前建分支、验证后提交，保证随时可回滚？</li>
+      <li>我有一份持续更新的迭代日志，可用于复盘与新会话开场吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m4-3.html">← 上一节：AI 生成代码的审查与调整</a>
+    <a href="s1-m5-1.html">下一节：零代码/低代码智能体搭建流程 →</a>
+  </div>
+
+</div>
+</body>
+</html>

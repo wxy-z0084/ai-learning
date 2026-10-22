@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>接口测试（Swagger）与部署（Uvicorn/Docker） · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块二 · FastAPI / <strong>接口测试（Swagger）与部署（Uvicorn/Docker）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>接口测试（Swagger）与部署（Uvicorn/Docker）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块二 · FastAPI</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够读懂并利用 <strong>Swagger UI / OpenAPI</strong> 完成接口调试、分享与前后端协作。</li>
+      <li>能够用 <strong>pytest + TestClient</strong> 为接口编写自动化测试，并用依赖覆盖（overrides）隔离外部资源。</li>
+      <li>能够配置 <strong>Uvicorn</strong> 在开发与生产环境运行应用，说清 reload 与 worker 数的选择依据。</li>
+      <li>能够编写 <strong>Dockerfile</strong> 把应用打包成镜像并运行，完成从代码到容器的最小部署闭环。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：Swagger 与 OpenAPI——接口即文档</h3>
+    <p>FastAPI 启动后自动生成 <strong>OpenAPI JSON</strong>（访问 /openapi.json），并内置两个可视化界面：<strong>/docs</strong>（Swagger UI，可直接点 Try it out 发请求）与 <strong>/redoc</strong>（更适合阅读的排版）。文档内容全部来自你的路由与类型标注，所以「写好模型 = 写好文档」，代码与文档不同步的问题从机制上被消除。协作用法：① 开发中用 /docs 手测新接口；② 把 openapi.json 交给前端用在线转换器生成类型定义，或用 openapi-generator 生成多语言客户端；③ 生产环境可关闭 /docs（app = FastAPI(docs_url=None, redoc_url=None)）避免暴露接口面，内网工具则建议保留。给路由补充 <strong>summary、description、response_description、tags、status_code</strong> 能显著提升文档质量。</p>
+
+    <h3>知识点 2：接口自动化测试</h3>
+    <p>测试分层：单元测试测纯函数（快、多）、接口测试测 HTTP 行为（真实、关键路径必测）。FastAPI 提供 <strong>TestClient</strong>（starlette 内置，基于 httpx），无需启动服务器即可 <strong>client.get("/items")</strong> 直接拿状态码与响应 JSON，非常适合放进 pytest。核心技巧是 <strong>依赖覆盖</strong>：app.dependency_overrides[get_db] = lambda: fake_db 把数据库、外部 API 替换成假实现，测试才能<strong>快速、可重复、不依赖外网</strong>；用 fixture（conftest.py）在每个测试前重置应用与假数据，结束后 <strong>dependency_overrides.clear()</strong>。断言至少覆盖三类：正常路径 200/201 与响应体结构、边界与非法输入 422、业务错误 401/404。异步路由用同步 TestClient 即可（其内部会运行事件循环），无需额外安装 pytest-asyncio。</p>
+
+    <h3>知识点 3：Uvicorn——ASGI 服务器</h3>
+    <p>FastAPI 应用是 <strong>ASGI</strong> 应用，需要 ASGI 服务器运行，<strong>Uvicorn</strong> 是最常用的一个：<strong>uvicorn main:app --host 0.0.0.0 --port 8000</strong>。开发用 <strong>--reload</strong> 监听代码变动自动重启（绝不能用于生产，额外开销且不安全）；生产用 <strong>--workers N</strong>，经验公式 N = 2×CPU核数 + 1，I/O 密集（大模型流式服务）可适当多配，CPU 密集则受 GIL 限制、应考虑多进程外的方案。生产还常以 <strong>gunicorn -k uvicorn.workers.UvicornWorker</strong> 或 systemd/ supervisor 托管实现守护与优雅重启；Linux 下可配合 uvloop/ttloop（uvicorn[standard] 自带）提升吞吐。日志统一走 <strong>--log-level info</strong> 或配置文件，反向代理（Nginx）负责 TLS、静态资源与 gzip。</p>
+
+    <h3>知识点 4：Docker 打包与运行</h3>
+    <p><strong>容器</strong>把应用与其依赖（解释器、库、系统包）一起封进镜像，实现「在我机器上能跑」到「哪里都能跑」。写 <strong>Dockerfile</strong> 的要点：① 基础镜像选 <strong>python:3.11-slim</strong>（体积小、够用）；② <strong>先 COPY 依赖文件再 COPY 源码</strong>并单独执行 pip install——利用分层缓存，改代码不重装依赖；③ <strong>写 .dockerignore</strong> 排除 .venv、__pycache__、.git、测试数据，避免镜像膨胀与密钥泄露；④ 容器内不要装开发工具，<strong>固定依赖版本</strong>保证构建可复现。运行用 <strong>docker run -p 8000:8000 -e SECRET_KEY=... image</strong>，端口「宿主:容器」映射，密钥一律用 -e 或编排平台注入、绝不写进镜像。上生产还需健康检查（HEALTHCHECK 或 /health 路由）、非 root 用户运行、多容器用 docker compose 编排。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：pytest 接口测试（含依赖覆盖隔离数据库），文件名 test_api.py，运行 <strong>pytest -v</strong>：</p>
+<pre><code>from fastapi import Depends, FastAPI, HTTPException
+from fastapi.testclient import TestClient
+
+app = FastAPI()
+
+FAKE_DB = {"items": {"1": {"id": 1, "name": "知识卡片"}}}
+
+def get_db():
+    return FAKE_DB                    # 生产实现是从连接池取会话
+
+@app.get("/items/{item_id}")
+def get_item(item_id: int, db: dict = Depends(get_db)):
+    item = db["items"].get(str(item_id))
+    if item is None:
+        raise HTTPException(404, "物品不存在")
+    return item
+
+# 用测试假库替换真实依赖，测试间互不污染
+app.dependency_overrides[get_db] = lambda: {"items": {}}
+
+client = TestClient(app)
+
+def test_get_existing_item():
+    app.dependency_overrides[get_db] = lambda: FAKE_DB
+    resp = client.get("/items/1")
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "知识卡片"
+
+def test_not_found_returns_404():
+    resp = client.get("/items/999")
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "物品不存在"
+
+def test_path_param_must_be_int():
+    resp = client.get("/items/abc")   # 类型不合法 → 框架自动 422
+    assert resp.status_code == 422
+
+def test_response_has_no_extra_fields():
+    body = client.get("/items/1").json()
+    assert set(body.keys()) == {"id", "name"}   # 验证字段白名单
+</code></pre>
+    <p>示例二：Dockerfile 与构建运行命令（放在项目根目录）：</p>
+<pre><code># ---------- Dockerfile ----------
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# 先拷贝依赖描述文件：只有依赖变化时才重建这一层
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+# requirements.txt 内容（固定版本保证可复现）：
+# fastapi==0.115.0
+# uvicorn[standard]==0.30.6
+# httpx==0.27.2
+
+# 再拷贝源码：业务代码变更不会触发依赖重装
+COPY src/ ./src/
+COPY main.py ./
+
+RUN useradd -m appuser &amp;&amp; chown -R appuser /app
+USER appuser                     # 非 root 运行，降低风险
+
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD python -c "import urllib.request; \
+      urllib.request.urlopen('http://127.0.0.1:8000/health')"
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+</code></pre>
+<pre><code># ---------- 构建与运行 ----------
+docker build -t ai-agent-service:1.0 .
+docker run -d --name agent -p 8000:8000 \
+  -e SECRET_KEY=change-me ai-agent-service:1.0
+curl http://127.0.0.1:8000/health     # 验证容器内服务可用
+</code></pre>
+    <div class="tip">💡 提示：本地开发不想装 Docker 也能验证——先 pytest 跑通接口测试，再 uvicorn 直接起服务用 /docs 手测，最后才 build 镜像。三步对应「逻辑正确 → 行为正确 → 环境可复现」。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为你的 FastAPI 项目写 4 个以上 pytest 用例，覆盖成功、404、422 三类断言，并用 app.dependency_overrides 把数据库依赖换成假实现，确认不连库也能跑绿。</li>
+      <li><strong>任务 2</strong>：打开 /docs 与 /redoc，给全部路由补上 summary、tags、status_code，导出 /openapi.json 并检查其中是否包含你补充的描述与示例。</li>
+      <li><strong>任务 3</strong>：分别用 uvicorn --reload（开发）与 --workers 2（模拟生产）启动同一应用，压测或观察日志差异，写下 worker 数与机器核数、请求类型的对应关系。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：编写 Dockerfile 与 .dockerignore 构建镜像，用 docker run 起容器访问 /health；故意删掉依赖层缓存写法（把 COPY src 提到 pip install 前）对比两次 build 的耗时差异。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/tutorial/testing/" target="_blank">FastAPI：测试教程</a> — <span class="desc">TestClient 用法、依赖覆盖与 CI 集成示例，本节测试部分的官方原文。</span></li>
+      <li>📖 <a href="https://docs.pytest.org/" target="_blank">pytest 官方文档</a> — <span class="desc">fixture、conftest 组织与参数化测试，Python 测试的事实标准。</span></li>
+      <li>📖 <a href="https://www.uvicorn.org/" target="_blank">Uvicorn 官方文档</a> — <span class="desc">启动参数、workers、部署集成（systemd/gunicorn）的配置说明。</span></li>
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/deployment/" target="_blank">FastAPI：部署概念</a> — <span class="desc">安全、性能、进程管理与多种部署方式的总览，上生产前的路线图。</span></li>
+      <li>📖 <a href="https://docs.docker.com/get-started/" target="_blank">Docker 官方入门文档</a> — <span class="desc">镜像、容器、Dockerfile 与 Compose 的交互式教程，配合示例二动手跑一遍。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能解释 /docs、/redoc、/openapi.json 三者关系，以及文档为何与代码保持同步吗？</li>
+      <li>我能独立写出带依赖覆盖的接口测试，并说明为什么测试不能连真实数据库/外网吗？</li>
+      <li>我知道开发与生产启动 Uvicorn 的参数差异，以及 worker 数如何估算吗？</li>
+      <li>我能从零写一个分层缓存的 Dockerfile，解释 COPY 顺序、.dockerignore 与非 root 运行各自的作用吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m2-4.html">← 上一节：流式响应（SSE / WebSocket）</a>
+    <a href="s2-m3-1.html">下一节：文档加载与切分策略 →</a>
+  </div>
+
+</div>
+</body>
+</html>

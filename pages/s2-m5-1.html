@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能体工程化目录与配置管理 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块五 · 企业级开发与部署 / <strong>智能体工程化目录与配置管理</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>智能体工程化目录与配置管理</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块五 · 企业级开发与部署</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够把一个"单文件脚本"形态的智能体重构为标准 Python 工程目录，说明每个目录的职责。</li>
+      <li>能够使用 <strong>pydantic-settings</strong> 实现"代码默认值 + .env 环境变量 + 配置文件"三层配置，并区分哪些内容绝不入库。</li>
+      <li>能够用 <strong>pyproject.toml</strong> 声明依赖，做到换一台机器也能一条命令复现运行环境。</li>
+      <li>能够自查现有项目的配置风险（硬编码密钥、环境不一致、路径写死）并给出整改清单。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：从脚本到工程——标准目录布局</h3>
+    <p>原型阶段常把所有代码写进一个 <strong>notebook 或 agent.py</strong>，一旦要接入监控、多人协作、Docker 部署，问题立刻暴露：模块互相 import 混乱、配置散落各处、日志与数据文件混在代码目录里。工程化的核心动作是<strong>按职责拆目录</strong>：业务代码放进 <strong>src 布局</strong>（<strong>src/agent_hub/</strong>），配置声明放进 <strong>pyproject.toml</strong>，环境差异放进 <strong>configs/</strong> 与 <strong>.env</strong>，可运行入口固定为 <strong>main.py</strong> 或 <strong>cli.py</strong>，测试、脚本、日志各归各位。</p>
+    <p>常见坑有两个：一是把 <strong>.env、密钥、向量库数据</strong>提交进 Git（应用 .gitignore 明确排除，并保留 <strong>.env.example</strong> 作为模板）；二是用 <strong>sys.path.append</strong> 之类的方式 hack 导入路径，应改为 <strong>pip install -e .</strong> 安装自身包，让导入路径由包管理决定。</p>
+
+    <h3>知识点 2：配置分层与类型校验</h3>
+    <p>企业项目里配置通常分三层：<strong>代码内默认值</strong>（最稳定的行为）、<strong>配置文件</strong>（按 dev/test/prod 切换）、<strong>环境变量</strong>（容器与 CI 中注入，优先级最高）。用 <strong>pydantic-settings</strong> 的 <strong>BaseSettings</strong> 可以一次读取 .env 与环境变量，并自动做<strong>类型转换与必填校验</strong>——缺少 API Key 时程序在启动阶段就报错，而不是等到调用模型时才失败。</p>
+    <p>实践要点：通过 <strong>@lru_cache</strong> 缓存 <strong>get_settings()</strong>，避免每个模块重复读文件；密钥类字段用 <strong>SecretStr</strong>，打印日志时自动脱敏；所有超时、重试次数、模型名都走配置，不要散落魔法数字。</p>
+
+    <h3>知识点 3：依赖与可复现环境</h3>
+    <p>把直接依赖写进 <strong>pyproject.toml</strong> 的 <strong>dependencies</strong>，团队统一用同一个安装方式（pip、uv 均可），避免"我电脑上能跑"。<strong>原则</strong>：锁文件或版本下界要进版本库，虚拟环境 <strong>.venv/</strong> 不进版本库。遵循 12-Factor 应用的"把配置存环境"与"严格分离构建与运行阶段"，后续 Docker 化会顺畅很多。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>先看推荐的目录骨架（以知识库智能体为例），再看配置类写法：</p>
+<pre><code>kb-agent/
+├── pyproject.toml        # 依赖与项目元信息（进 Git）
+├── .env.example          # 环境变量模板（进 Git，无真实密钥）
+├── .gitignore            # 排除 .env / .venv / logs / data
+├── configs/
+│   ├── dev.yaml
+│   └── prod.yaml
+├── src/agent_hub/
+│   ├── __init__.py
+│   ├── config.py         # 配置模型（唯一读取 .env 的地方）
+│   ├── llm/              # 模型调用封装
+│   ├── tools/            # 工具函数
+│   └── main.py           # FastAPI / CLI 入口
+├── tests/
+├── scripts/              # 迁移、索引重建等运维脚本
+└── logs/
+</code></pre>
+    <p>配置类：启动时完成类型校验，任何模块都通过 <strong>get_settings()</strong> 获取配置，不直接碰 os.environ。</p>
+<pre><code># src/agent_hub/config.py
+from functools import lru_cache
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+    app_name: str = "kb-agent"
+    env: str = "dev"
+    llm_api_key: SecretStr
+    llm_base_url: str = "https://api.deepseek.com"
+    llm_model: str = "deepseek-chat"
+    max_retries: int = 3
+    request_timeout: float = 30.0
+    log_level: str = "INFO"
+
+
+@lru_cache
+def get_settings() -&gt; Settings:
+    return Settings()
+
+
+if __name__ == "__main__":
+    s = get_settings()
+    print(s.app_name, s.env, s.llm_api_key)  # SecretStr 打印为 masked
+</code></pre>
+    <div class="tip">💡 提示：把 <strong>llm_api_key</strong> 这类敏感项写进 .env 并在 .gitignore 中排除，仓库里只保留 .env.example（写出变量名和示例值）。上线时改用部署平台的密钥管理，而不是把 .env 打进镜像。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：把你之前写的任一智能体脚本拆成本页的目录结构，入口改为 <strong>python -m agent_hub.main</strong> 可运行。</li>
+      <li><strong>任务 2</strong>：用 pydantic-settings 重写配置读取，删除代码中所有 <strong>os.environ</strong> 与硬编码密钥；提交 .env.example 与 .gitignore。</li>
+      <li><strong>任务 3</strong>：编写 pyproject.toml 声明依赖，在全新虚拟环境中执行 <strong>pip install -e .</strong> 后能直接跑通入口与 <strong>pytest</strong>。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：为 dev/prod 各写一份 configs yaml，通过环境变量 <strong>APP_ENV</strong> 切换，并验证缺密钥时启动立即失败。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://docs.pydantic.dev" target="_blank">Pydantic 官方文档</a> — <span class="desc">重点看 Settings（pydantic-settings）章节，掌握环境变量读取、类型校验与 SecretStr。</span></li>
+      <li>📖 <a href="https://12factor.net/zh-cn/" target="_blank">The Twelve-Factor App 中文版</a> — <span class="desc">企业应用配置与部署的十二条原则，半天读完，工程化决策的判断标尺。</span></li>
+      <li>📖 <a href="https://packaging.python.org" target="_blank">PyPA 官方打包指南</a> — <span class="desc">pyproject.toml、可编辑安装与虚拟环境的权威说明。</span></li>
+      <li>🛠 <a href="https://github.com/astral-sh/uv" target="_blank">uv（Astral）</a> — <span class="desc">新一代 Python 依赖与环境管理工具，可作为 pip 的快速替代。</span></li>
+      <li>📖 <a href="https://docs.python.org/3/tutorial/venv.html" target="_blank">Python 官方教程：虚拟环境</a> — <span class="desc">确认每个项目隔离环境的标准做法。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能画出本节目录结构并说出每个目录为什么存在吗？</li>
+      <li>我能说清三层配置的优先级，并指出哪些内容绝不能提交到 Git 吗？</li>
+      <li>换一台干净的机器，我能靠 pyproject.toml 在 5 分钟内跑起项目吗？</li>
+      <li>我的项目里还存在硬编码密钥、写死路径或魔法数字吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m4-5.html">← 上一节：LangGraph 多步智能体工作流</a>
+    <a href="s2-m5-2.html">下一节：日志、监控与异常处理 →</a>
+  </div>
+
+</div>
+</body>
+</html>

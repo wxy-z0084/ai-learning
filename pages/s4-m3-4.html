@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>共享记忆与状态管理 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块三 · 多智能体开发 / <strong>共享记忆与状态管理</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>共享记忆与状态管理</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块三 · 多智能体开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够区分<strong>对话内记忆、会话持久化、长期语义记忆</strong>三层，并说明各自的数据形态与生命周期。</li>
+      <li>能够用 LangGraph 的 checkpointer + thread_id 实现会话状态持久化与断点续跑。</li>
+      <li>能够设计一个共享记忆库（向量检索 + 元数据过滤），支持多智能体按权限读写。</li>
+      <li>能够给出<strong>上下文预算</strong>与摘要裁剪策略，避免多轮协作中上下文爆炸。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：三层记忆模型</h3>
+    <p><strong>第一层：对话内记忆（Working Memory）</strong>就是当前 messages 列表——模型每次推理看到的全部内容，随轮次线性增长，超出窗口即丢失最早信息。它由调用方管理（保留几条、裁剪几条由你决定）。<strong>第二层：会话状态（Session/Thread State）</strong>指可序列化的结构化数据（表单字段、任务进度、中间产物），存储在数据库里，用 thread_id 索引；LangGraph 的 checkpointer 就是这一层的标准实现——每次图执行结束自动把 State 存档，再次 invoke 同 thread_id 时恢复现场，天然获得"会话恢复""人工审批中断后续跑"能力。</p>
+    <p><strong>第三层：长期记忆（Long-term Semantic Memory）</strong>是跨会话沉淀的知识：用户偏好、项目事实、历史决策。实现通常是"向量化 + 检索"：文本经 embedding 模型转成向量存入向量库（pgvector、Chroma、Milvus），每次推理前按当前任务检索 top-k 相关条目注入 prompt。三层的写入策略不同：第一层要<strong>控制体积</strong>，第二层要<strong>保证一致与可回滚</strong>，第三层要<strong>保证质量</strong>（脏记忆一旦入库会持续毒害后续所有会话，必须有审核与过期机制）。</p>
+
+    <h3>知识点 2：共享记忆的并发与冲突</h3>
+    <p>多智能体共享一个记忆库时，单会话记忆的管理问题被放大。三类典型冲突：<strong>写-写冲突</strong>（两个智能体同时更新同一条"项目状态"，后写覆盖前写）——对策是给记忆加版本号/时间戳，写入用乐观锁，或按主题分片让不同角色写不同空间；<strong>读到脏记忆</strong>（A 写入半成品结论，B 检索到就当事实引用）——对策是记忆条目带 <code>status</code> 字段（draft / confirmed），检索默认只返回 confirmed，由评审角色负责 draft 升级；<strong>矛盾记忆累积</strong>（上轮说方案选 A，这轮说选 B，两条都躺在库里）——对策是写入前做相似度检查，高相似且结论相反时走"替换"而非"追加"，并保留历史版本供审计。</p>
+    <p>访问控制也要设计：不是每个角色都能读全部记忆——评审员需要看到全部草稿，而执行者只该看到确认后的指令。工程上最简做法是按 <code>visibility</code> 标签过滤检索；严肃做法是每个角色一个记忆命名空间，由 Supervisor 负责跨空间搬运。</p>
+
+    <h3>知识点 3：上下文预算与裁剪</h3>
+    <p>多智能体系统里 token 成本的头号杀手是<strong>无节制的上下文累积</strong>。做法是给每次调用设<strong>上下文预算</strong>：先确定预算（如 8K tokens），分配比例大致为 系统提示词 20% / 检索到的记忆 20% / 当前任务输入 40% / 预留输出 20%，然后从大到小裁剪。裁剪手段按信息价值排序：<strong>直接丢弃</strong>最老的中间过程消息（保留首条与最近 N 条）、<strong>滚动摘要</strong>（用一次廉价 LLM 调用把 20 轮历史压成 300 字摘要——摘要里必须保留数字、决策与未决问题，这是最容易丢的信息）、<strong>外部化</strong>（把大文档落盘只传路径/ID，运行时按需检索）。实践技巧：把"哪些字段绝不允许被摘要"写成规则（金额、ID、验收标准），并在裁剪后断言关键字段仍在上下文里——否则静默丢失会在若干轮之后才以"AI 忽忽悠悠说错话"的形式爆发。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：LangGraph checkpointer 实现会话状态持久化（模拟"审批中断 → 恢复续跑"场景，pip install langgraph langgraph-checkpoint-sqlite）：</p>
+<pre><code>from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.sqlite import SqliteSaver
+from typing import TypedDict
+
+class OrderState(TypedDict):
+    order_id: str
+    approved: bool
+    log: list
+
+def prepare(state: OrderState) -> OrderState:
+    return {"log": state["log"] + [f"{state['order_id']} 材料已准备，等待人工审批"]}
+
+def approve(state: OrderState) -> OrderState:
+    # approved 由外部审批系统在恢复会话时写入 State（interrupt 机制或外部更新）
+    tag = "已批准" if state["approved"] else "未批准"
+    return {"log": state["log"] + [f"审批结果：{tag}"]}
+
+def route(state: OrderState) -> str:
+    return END if state["approved"] else "wait"      # 未批准：停在此处等人
+
+def wait(state: OrderState) -> OrderState:
+    return {"log": state["log"] + ["挂起中，等待审批信号"]}
+
+g = StateGraph(OrderState)
+g.add_node("prepare", prepare)
+g.add_node("approve", approve)
+g.add_node("wait", wait)
+g.set_entry_point("prepare")
+g.add_edge("prepare", "approve")
+g.add_conditional_edges("approve", route, {"wait": "wait", END: END})
+g.add_edge("wait", END)
+
+with SqliteSaver.from_conn_string("checkpoints.db") as memory:
+    app = g.compile(checkpointer=memory)
+    cfg = {"configurable": {"thread_id": "order-1001"}}   # 会话主键
+    app.invoke({"order_id": "1001", "approved": False, "log": []}, cfg)
+
+    # —— 模拟几小时后，审批人在另一个进程点击"批准"——
+    with SqliteSaver.from_conn_string("checkpoints.db") as mem2:
+        app2 = g.compile(checkpointer=mem2)
+        snap = app2.get_state(cfg)                      # 恢复到中断处的状态
+        snap.values["approved"] = True
+        app2.update_state(cfg, snap.values)             # 写回审批结果
+        print(app2.invoke(None, cfg)["log"])            # 从断点继续执行到结束</code></pre>
+    <div class="tip">💡 checkpointer 同时也是"状态管理审计日志"：每个 checkpoint 都是一次图执行结束时的完整 State 快照，出问题可逐帧回放。生产环境把 SqliteSaver 换成 PostgresSaver 即可多副本共享。</div>
+    <p>示例二：轻量共享记忆库——按语义检索、带状态过滤与版本管理（向量部分示意为关键词打分，生产替换为 embedding 即可）：</p>
+<pre><code>import json, time, uuid
+
+mem_file = "shared_memory.jsonl"
+
+def write_memory(actor: str, topic: str, content: str, status="draft", visibility="all"):
+    rec = {"id": str(uuid.uuid4()), "actor": actor, "topic": topic,
+           "content": content, "status": status, "visibility": visibility,
+           "created_at": time.time(), "version": 1}
+    with open(mem_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return rec["id"]
+
+def search_memory(query: str, limit=3):
+    """检索：按主题词打分 + 只返回 confirmed（防脏记忆）"""
+    recs = [json.loads(l) for l in open(mem_file, encoding="utf-8")]
+    hits = [r for r in recs if r["status"] == "confirmed"
+            and (r["topic"] in query or any(w in r["content"] for w in query.split()))]
+    hits.sort(key=lambda r: r["created_at"], reverse=True)
+    return hits[:limit]
+
+def confirm_memory(mem_id: str, reviewer: str):
+    """评审角色把草稿升级为已确认——draft 永远不会被检索到"""
+    lines = []
+    for l in open(mem_file, encoding="utf-8"):
+        r = json.loads(l)
+        if r["id"] == mem_id:
+            r["status"], r["version"] = "confirmed", r["version"] + 1
+            r["confirmed_by"] = reviewer
+        lines.append(json.dumps(r, ensure_ascii=False))
+    open(mem_file, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+
+# 用法：writer 写草稿 -> reviewer 确认 -> 之后所有角色检索到的都是确认过的结论
+mid = write_memory("writer", "选型结论", "消息队列选用 Kafka，因需分区顺序性与回溯消费")
+confirm_memory(mid, "reviewer")
+for m in search_memory("消息队列选型结论"):
+    print(m["actor"], ":", m["content"])</code></pre>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：跑通示例一：首次 invoke 后"杀掉"进程，重新启动再用同 thread_id 恢复，验证 log 完整续接；把 thread_id 换成新值确认是全新会话。</li>
+      <li><strong>任务 2</strong>：给示例二加并发写入测试：两个线程同时写入同一 topic 并互相确认，观察是否出现矛盾结论，用"相似主题替换"策略修复。</li>
+      <li><strong>任务 3</strong>：为你的一个多智能体流程写上下文预算表：列出每次调用的 prompt 组成与 token 配额，并实现裁剪后"关键数字仍在场"的断言。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：把示例二的记忆库换成 Chroma + embedding 检索（pip install chromadb），对比关键词检索与语义检索在模糊问题上的命中率差异。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://langchain-ai.github.io/langgraph/" target="_blank">LangGraph 官方文档</a> — <span class="desc">Persistence 章节讲 checkpointer/thread_id/断点续跑，示例一的权威出处。</span></li>
+      <li>📖 <a href="https://python.langchain.com/docs/" target="_blank">LangChain 官方文档</a> — <span class="desc">Memory 相关概念与向量库集成（Chroma/pgvector）的接入方式。</span></li>
+      <li>📖 <a href="https://www.trychroma.com/docs/" target="_blank">Chroma 官方文档</a> — <span class="desc">轻量向量数据库，适合快速给智能体加上长期语义记忆。</span></li>
+      <li>📖 <a href="https://github.com/langchain-ai/langgraph" target="_blank">LangGraph GitHub（checkpointing 示例）</a> — <span class="desc">human-in-the-loop、persistence 目录下有可运行的审批中断示例。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清三层记忆分别存在哪、生命周期多长、由谁负责写入吗？</li>
+      <li>我的会话状态用什么持久化？进程崩溃后能否用 thread_id 恢复现场？</li>
+      <li>共享记忆里的草稿会不会被其他角色当成事实引用？升级为已确认的流程是什么？</li>
+      <li>我的上下文预算怎么分配？摘要裁剪后关键数字（金额、ID、标准）有没有丢失检测？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m3-3.html">← 上一节：编排框架（LangGraph / CrewAI / AutoGen）</a>
+    <a href="s4-m3-5.html">下一节：多智能体冲突处理与结果汇总 →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分库分表（ShardingSphere）· AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块二 · 分布式方案 / <strong>分库分表（ShardingSphere）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>分库分表（ShardingSphere）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块二 · 分布式方案</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够判断一个业务是否真的需要分库分表，并选择<strong>分片键</strong>与分片策略（哈希取模 / 范围 / 一致性哈希）。</li>
+      <li>能够用 ShardingSphere-JDBC 写出分库分表配置，说明分片算法、绑定表、广播表的作用。</li>
+      <li>能够处理分片后的典型难题：<strong>跨分片排序分页、全局唯一 ID、跨分片 JOIN 与分布式事务</strong>。</li>
+      <li>能够设计不停机扩容与数据迁移的基本步骤（双写、校验、切读）。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：什么时候该分、怎么选分片键</h3>
+    <p>分库分表是"最后手段"：单表行数过亿、单库磁盘或连接数成为瓶颈，且<strong>加索引、读写分离、归档历史数据、升级硬件都已无效</strong>时才考虑。不分片的代价远小于分片的代价——分片后所有不带分片键的查询都要广播到全分片，运维复杂度陡增。很多公司单表 5000 万行 + 读写分离就能再撑几年，先榨干这些手段。</p>
+    <p>分片键（sharding key）的选择决定成败，原则是<strong>高频查询条件里必带该字段</strong>：订单表用 user_id（按用户查订单是最高频场景），明细表用 order_id。分片键选错，等于把单库问题变成 N 个库的全量扫描问题。策略上，<strong>哈希取模</strong>（user_id % 库数）数据分布均匀但扩容要迁移；<strong>范围分片</strong>（按月份）扩容方便但热点集中。实践中常见"库内哈希、库间范围"的混合策略：库按日期分、表按 ID 哈希。另一个铁律：<strong>分片键上的等值条件能路由到单分片，其余条件只能全分片执行</strong>，接口设计时就要保证用户请求必带分片键。</p>
+
+    <h3>知识点 2：ShardingSphere 的核心概念</h3>
+    <p><strong>Apache ShardingSphere</strong> 是 Apache 顶级项目，提供三种形态：<strong>JDBC</strong>（Java 客户端内嵌分片引擎，无代理层、性能最好）、<strong>Proxy</strong>（独立数据库代理，兼容 MySQL/PostgreSQL 协议，多语言可用）、<strong>Sidecar</strong>（面向 Service Mesh 的无代理模式，尚不成熟）。核心配置由四部分组成：<strong>数据源</strong>（真实数据库连接）、<strong>逻辑表与真实表</strong>（代码里操作逻辑表 orders，引擎路由到 orders_0…orders_n）、<strong>分片规则</strong>（分片键 + 分片算法）、<strong>绑定表</strong>（orders 与 order_items 用同一分片键，使跨表 JOIN 只在同分片内发生，避免笛卡尔积）。</p>
+    <p>另外两个高频概念：<strong>广播表</strong>（如字典表，每个分片都存全量副本，JOIN 时无网络开销）；<strong>分布式主键</strong>（分片后单库自增 ID 必然冲突，ShardingSphere 内置 SNOWFLAKE 与 UUID 算法，雪花 ID 生成器要解决时钟回拨问题）。读写分离可与分片叠加：分片规则里为每个分库配置主从数据源与负载均衡策略。</p>
+
+    <h3>知识点 3：分片后的四大难题与对策</h3>
+    <p><strong>跨分片分页排序</strong>：查"所有用户的第 10 页最新订单"必须先在每个分片取 offset+limit 条再归并排序，深翻页（offset 10 万）代价极高——业务上应改用<strong>游标分页</strong>（WHERE id &lt; last_id ORDER BY id DESC LIMIT 20），彻底消灭 offset。</p>
+    <p><strong>跨分片聚合</strong>：COUNT/AVG 可归并，但 DISTINCT、GROUP BY 大表会拖慢查询，冷数据建议走离线数仓。<strong>跨分片事务</strong>：本地事务失效，可用 ShardingSphere 的 XA 或 SEC（ShardingSphere-Embedded-Transaction，Seata 内置）模式，或干脆用前一节的最终一致性方案。<strong>数据迁移与扩容</strong>：不停机方案分四步——双写新旧分片、按分片键重新路由读、历史数据迁移比对、下线旧分片；迁移期间务必保证"新数据双写、旧数据可回放"。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：ShardingSphere-JDBC 5.x 的 YAML 规则——orders 表按 user_id 哈希分 2 库 × 4 表，order_items 作为绑定表同键分片，dict_info 为广播表：</p>
+<pre><code># application-sharding.yaml（Spring Boot 内使用 spring.shardingsphere 前缀）
+spring:
+  shardingsphere:
+    datasource:
+      names: ds0,ds1
+      ds0:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://10.0.0.11:3306/orders_db?useSSL=false
+        username: app
+        password: ***
+      ds1:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://10.0.0.12:3306/orders_db?useSSL=false
+        username: app
+        password: ***
+    rules:
+      sharding:
+        tables:
+          orders:                              # 逻辑表
+            actual-data-nodes: ds$-&gt;{0..1}.orders_$-&gt;{0..3}
+            table-strategy:
+              standard:
+                sharding-column: user_id
+                sharding-algorithm-name: orders-mod
+            key-generate-strategy:            # 分布式主键
+              column: order_id
+              key-generator-name: snowflake
+          order_items:                         # 绑定表：与 orders 同键，JOIN 不跨片
+            actual-data-nodes: ds$-&gt;{0..1}.order_items_$-&gt;{0..3}
+            table-strategy:
+              standard:
+                sharding-column: user_id
+                sharding-algorithm-name: orders-mod
+        broadcast-tables: [dict_info]
+        sharding-algorithms:
+          orders-mod:
+            type: HASH_MOD                    # 取模分片
+            props:
+              sharding-count: 4
+        key-generators:
+          snowflake:
+            type: SNOWFLAKE</code></pre>
+    <p>配置生效后，业务代码完全不感知分片，正常的 MyBatis/JPA 查询会自动路由；但 <code>SELECT * FROM orders WHERE order_id = ?</code>（不带 user_id）会广播到全部 8 张表——这正是"分片键必须出现在高频查询中"的原因。</p>
+    <div class="tip">💡 验证路由是否正确：开启 <code>sql-show: true</code>，ShardingSphere 会把逻辑 SQL 与实际执行的物理 SQL 都打进日志。上线前务必把核心接口的真实 SQL 都跑一遍，检查每个都能路由到单分片或可控的分片组。</div>
+    <p>示例二：游标分页 SQL 写法对比（消灭 OFFSET 深翻页）：</p>
+<pre><code>-- ❌ 深翻页：每次都要扫描并丢弃前 100000 行，越翻越慢
+SELECT * FROM orders WHERE user_id = 888
+ORDER BY create_time DESC LIMIT 20 OFFSET 100000;
+
+-- ✅ 游标分页：用上一页末行 ID 作游标，任意页深度都是索引扫描
+SELECT * FROM orders
+WHERE user_id = 888 AND order_id &lt; 1873456789012345678
+ORDER BY order_id DESC LIMIT 20;
+-- 客户端把本页最后一条的 order_id 作为下一页请求的 last_id 传回</code></pre>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：用 docker 起两个 MySQL 实例，按示例一配置 ShardingSphere-JDBC，插入 100 条订单，用 <code>sql-show</code> 日志验证数据均匀落在 8 张物理表中。</li>
+      <li><strong>任务 2</strong>：分别执行"带 user_id"与"不带 user_id"的查询，观察物理 SQL 的差异，记录各自的耗时，向同学解释为什么后者是反模式。</li>
+      <li><strong>任务 3</strong>：实现游标分页接口：返回体带上 next_cursor 字段，压测对比 OFFSET 10 万与游标方式的响应时间。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：设计一份"orders 从 4 表扩容到 8 表"的不停机迁移方案文档，包含双写、回放、校验 SQL、回滚预案四个部分。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://shardingsphere.apache.org/document/current/cn/" target="_blank">ShardingSphere 官方中文文档</a> — <span class="desc">概念、配置与运维手册全集，重点读"使用手册"下的分片与 JDBC 章节。</span></li>
+      <li>📖 <a href="https://shardingsphere.apache.org/" target="_blank">ShardingSphere 官网首页</a> — <span class="desc">了解项目全景（JDBC/Proxy/Sidecar）与最新版本动态。</span></li>
+      <li>📖 <a href="https://github.com/apache/shardingsphere" target="_blank">Apache ShardingSphere GitHub</a> — <span class="desc">examples 目录有可直接运行的分库分表示例工程，比文档更快上手。</span></li>
+      <li>📖 <a href="https://shardingsphere.apache.org/document/current/cn/user-manual/shardingsphere-jdbc/" target="_blank">ShardingSphere-JDBC 使用手册</a> — <span class="desc">YAML/Java API 配置参考，写规则时对照查阅。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能向架构师论证"我们系统现在不需要分库分表"或"需要且理由是这三条"吗？</li>
+      <li>我能解释分片键、绑定表、广播表、雪花 ID 四个概念各自解决什么问题吗？</li>
+      <li>我的核心列表接口是否都支持游标分页？还有没有裸 OFFSET 的查询？</li>
+      <li>如果明天就要把订单库扩容一倍，我的迁移方案里双写、校验、回滚分别怎么做？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m2-3.html">← 上一节：分布式缓存与 Redis 集群</a>
+    <a href="s4-m2-5.html">下一节：高可用与容灾设计 →</a>
+  </div>
+
+</div>
+</body>
+</html>

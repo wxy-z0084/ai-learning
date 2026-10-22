@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>微调场景判断（何时微调 vs RAG）· AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段五 · 传统项目智能化升级 / 模块二 · LoRA 微调 / <strong>微调场景判断（何时微调 vs RAG）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段五 · 传统项目智能化升级</div>
+    <h1>微调场景判断（何时微调 vs RAG）</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块二 · LoRA 微调</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说清<strong>微调与 RAG 的本质区别</strong>：一个改"怎么说话"，一个供"说什么"。</li>
+      <li>能够按六个判断维度为具体场景在<strong>微调、RAG、二者结合</strong>之间做出有依据的选择。</li>
+      <li>能够识别"该用 RAG 却去微调"的典型错误，并给出纠正方案。</li>
+      <li>能够列出微调开工前的<strong>前置检查清单</strong>，避免在数据不足时盲目启动。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：微调改变什么、不改变什么</h3>
+    <p>微调是<strong>用业务数据更新模型权重</strong>，让模型把任务的"套路"内化：稳定的输出格式、行业术语的正确用法、特定的语气与详略偏好、对某类输入的判别倾向。它<strong>不擅长注入可查询的事实</strong>——你很难靠微调让模型记住一份会季度更新的价格表，即使记住了也无法给出出处、容易张冠李戴（表现为自信地编造）。与之相对，<strong>RAG 把知识放在模型外面</strong>：每次作答先检索相关片段，知识更新只需重建索引，答案可附引用链接、可审计，非常适合"知识量大、频繁更新、必须溯源"的场景。一句话记住：<strong>知识进 RAG，行为进微调</strong>；如果既能微调又能 RAG，通常也是各管一摊而不是二选一。</p>
+
+    <h3>知识点 2：六维判断</h3>
+    <p><strong>① 知识更新频率</strong>：每周都变 → RAG；半年不变的领域惯例 → 微调。<strong>② 是否需要引用出处</strong>：需要（法务、医疗、客服话术合规）→ RAG。<strong>③ 问题类型</strong>：开放事实问答 → RAG；固定格式的判别与生成（分类、抽取、结构化改写、风格翻译）→ 微调。<strong>④ 数据量</strong>：有几百到上万条高质量"输入→期望输出"样本 → 微调有条件；只有文档没有标注对 → 老老实实 RAG。<strong>⑤ 成本与延迟</strong>：提示词里塞长文档导致 token 贵、延迟高，可<strong>微调 + 少量检索</strong>——让模型学会"给这点上下文就够用"。<strong>⑥ 隐私与私有化</strong>：数据不能出内网 → 微调出一个本地小模型，比自建大模型推理 + 全量知识库更省资源。</p>
+
+    <h3>知识点 3：前置检查与组合范式</h3>
+    <p>启动微调前问四个问题：<strong>基线达标了吗？</strong>——先把提示词 + few-shot 调到极致，微调必须对着这个基线比，否则无法证明自己的价值；<strong>样本够吗？</strong>——分类/抽取类通常几百条就有收益，风格与复杂推理建议千条以上，且质量远比数量重要（宁要 500 条精品，不要 5 万条噪声）；<strong>评测集准备好了吗？</strong>——训练/验证/测试必须分离，防止"练过题"的假高分；<strong>退化风险评估了吗？</strong>——微调会损失通用能力（灾难性遗忘），只在目标任务上变强，要保留通用问答的场景需混入通用数据。推荐的终局形态是<strong>"微调打底 + RAG 供知识 + 提示词兜底"</strong>：微调保证格式与语感稳定，RAG 保证事实准确可溯源。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：把六维判断固化成<strong>选型配置</strong>，评审时逐项打勾，结论一目了然：</p>
+<pre><code># finetune-or-rag.yaml —— 三个场景的选型结论
+scenarios:
+  - name: 合同风险条款问答
+    facts_change_often: true        # 条款库每月更新
+    needs_citation: true            # 必须给出条款原文出处
+    task_type: 事实问答
+    data_pairs: 0                   # 只有文档，无标注对
+    conclusion: RAG
+    note: 微调无法提供出处，且知识更新会导致模型记忆过期
+
+  - name: 工单分类与固定格式摘要
+    facts_change_often: false
+    needs_citation: false
+    task_type: 判别与结构化生成
+    data_pairs: 3000                # 历史已标注工单
+    conclusion: 微调（LoRA）
+    note: 纯提示词基线 82% → 目标 92%；格式稳定后可换更小模型，降本 80%
+
+  - name: 产品手册导购问答
+    facts_change_often: true
+    needs_citation: true
+    task_type: 事实问答 + 回答语气要求高
+    data_pairs: 800                 # 优质客服对话对
+    conclusion: RAG + 微调
+    note: RAG 供事实与引用，微调学习品牌语气与拒答边界</code></pre>
+    <p>示例二：一个可复用的<strong>判断函数</strong>，团队拿它当决策起点（结论仍需人工复核）：</p>
+<pre><code>def decide(ans: dict) -> str:
+    """ans: 每项为 True/False 与数量的自评结果"""
+    if ans["needs_citation"] or ans["knowledge_updates_often"]:
+        # 会变、要溯源 → 检索打底
+        return "RAG + 微调" if ans["data_pairs"] &gt;= 500 else "RAG"
+    if ans["data_pairs"] &lt; 200:
+        return "提示词工程（数据不足，先攒数据）"
+    if ans["prompt_baseline_hit_target"]:
+        return "提示词工程（已达标，勿微调）"
+    return "微调（LoRA）"   # 行为/格式问题 + 数据充足 + 基线未达标
+
+if __name__ == "__main__":
+    ans = {"needs_citation": False, "knowledge_updates_often": False,
+           "data_pairs": 3000, "prompt_baseline_hit_target": False}
+    print("选型结论：", decide(ans))   # → 微调（LoRA）</code></pre>
+    <div class="tip">💡 判断的黄金顺序：提示词 → RAG → 微调，逐级加码且不跳级。每上一级都要回答"上一级为什么不奏效"，并留下基线数字作为证据。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：列出你手头 3 个 AI 候选场景，按示例一逐项填写六个判断维度，给出 RAG / 微调 / 组合 / 仅提示词的结论与理由。</li>
+      <li><strong>任务 2</strong>：为结论是"微调"的场景做基线实验：纯提示词 + 3 个示例跑评测集，记录准确率，写明"微调要从多少提到多少"。</li>
+      <li><strong>任务 3</strong>：盘点数据：能凑出多少条"输入→期望输出"样本？抽 20 条检查质量（答案是否一致、有无错标），写出数据补齐计划。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：为"RAG + 微调"组合场景画职责分工图：哪些信息走检索、哪些行为靠微调、提示词里还保留什么兜底规则。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://platform.openai.com/docs/guides/fine-tuning" target="_blank">OpenAI Fine-tuning 官方指南</a> — <span class="desc">官方对"何时值得微调"的判断建议与数据格式要求，开工前必读。</span></li>
+      <li>📖 <a href="https://huggingface.co/docs/peft" target="_blank">Hugging Face PEFT 文档</a> — <span class="desc">参数高效微调（含 LoRA）的官方文档，本模块后续实操的技术底座。</span></li>
+      <li>📖 <a href="https://huggingface.co/learn/nlp-course" target="_blank">Hugging Face NLP 课程</a> — <span class="desc">第 3 章讲预训练模型的微调范式，补足"微调到底在更新什么"的底层理解。</span></li>
+      <li>📖 <a href="https://github.com/hiyouga/LLaMA-Factory" target="_blank">LLaMA-Factory</a> — <span class="desc">开源微调框架，本模块后两节的实操对象，可先浏览其支持的训练方式列表。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能用"知识进 RAG、行为进微调"一句话向同事解释两者的分工吗？</li>
+      <li>我能对一个新场景按六个维度打勾并给出选型结论与被否方案的理由吗？</li>
+      <li>我是否先跑过纯提示词基线、确认它不达标，才决定上微调？</li>
+      <li>我数过自己的高质量样本条数，并抽样检查过标注质量吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s5-m1-4.html">← 上一节：升级效果验证与业务价值评估</a>
+    <a href="s5-m2-2.html">下一节：训练数据收集、清洗与格式构造 →</a>
+  </div>
+
+</div>
+</body>
+</html>

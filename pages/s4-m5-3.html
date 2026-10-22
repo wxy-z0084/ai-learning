@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>限流、熔断与降级策略 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块五 · 高并发系统落地 / <strong>限流、熔断与降级策略</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>限流、熔断与降级策略</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块五 · 高并发系统落地</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够区分并选型四种限流算法（固定窗口、滑动窗口、漏桶、令牌桶），说清各自的适用场景。</li>
+      <li>能够使用 Sentinel 或 Resilience4j 为关键接口配置熔断规则，并解释慢调用比例与异常比例的差异。</li>
+      <li>能够为一个高并发接口设计完整的三级兜底：限流拒绝 → 熔断降级 → 静态兜底页。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：限流——守住系统的第一道闸门</h3>
+    <p><strong>固定窗口计数</strong>最简单：每分钟限 1000 次，但窗口切换瞬间可能放进来 2000 次（临界突发），这是它的原罪；<strong>滑动窗口</strong>把窗口切成小格子滚动统计，解决了临界问题，是 Sentinel 默认实现；<strong>漏桶</strong>以恒定速率漏水，输出绝对平滑，适合保护下游"节奏敏感"的服务，但突发流量要么排队要么直接丢；<strong>令牌桶</strong>按速率生成令牌、允许积累，兼顾了平滑与允许合理突发，是业界默认选择（Guava RateLimiter 即此类）。</p>
+    <p>限流维度要分层部署：<strong>网关层</strong>按 IP/用户全局限流，<strong>服务层</strong>按接口限流，<strong>热点参数</strong>按商品 ID、账号 ID 限流（防黄牛刷票最有效）。常见坑：只在一处限流，网关挡住了但服务间内部调用没有二次防护，一旦某服务雪崩仍会拖垮全站。</p>
+
+    <h3>知识点 2：熔断——防止故障扩散</h3>
+    <p>熔断的逻辑类似电路保险丝：当下游错误率或慢调用比例超过阈值，直接在本地快速失败，不再真的发起调用，给下游喘息和恢复的时间。<strong>慢调用比例</strong>规则适合"响应变慢才是前兆"的场景（如数据库连接池将满），<strong>异常比例</strong>规则适合"报错即故障"的场景（如下游返回 5xx）。熔断后系统会进入<strong>半开状态</strong>：放少量探测请求试探，成功则恢复，失败则继续熔断。</p>
+    <p>关键经验：熔断阈值不是越低越好——设 1% 会导致轻微抖动就大面积熔断，设 30% 又形同虚设。要根据历史监控数据的错误率分布来定，并且<strong>给每个规则配一条告警</strong>，熔断本身也是需要被知道的事件。</p>
+
+    <h3>知识点 3：降级——用户体验的最后防线</h3>
+    <p>降级回答"系统不能正常服务时，给用户看什么"。设计原则是<strong>保核心、弃周边</strong>：保住下单支付主链路，牺牲推荐、评论、积分等旁路功能。降级方式按侵入程度排列：配置开关关闭某功能 → 读缓存兜底（返回 10 分钟前的数据）→ 静态兜底页（活动太火爆，请稍后再试）。对 AI 场景，还要加上"模型不可用退回规则引擎"的降级（在模块四方案设计中已铺垫）。</p>
+    <p>所有降级开关必须<strong>集中在配置中心</strong>并支持秒级生效，否则大促当晚你在改代码还是在改配置，直接决定事故等级。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：Sentinel 规则配置（JSON 格式，可直接通过 Nacos 推送到运行中的应用，实现规则动态化）：</p>
+<pre><code>[
+  {
+    "resource": "/api/order/create",
+    "grade": 1,                     // 1=QPS 限流，0=并发线程数
+    "count": 200,                   // 单机 QPS 上限
+    "strategy": 0,
+    "controlBehavior": 0,           // 0=快速失败 1=Warm Up 2=排队等待
+    "clusterMode": false
+  },
+  {
+    "resource": "/api/ai/chat",
+    "grade": 0,                     // 熔断规则：按并发数保护 AI 服务
+    "count": 50,
+    "slowRatioThreshold": 0.5,      // 慢调用比例阈值：50%
+    "timeWindow": 30,               // 熔断持续 30 秒后进入半开探测
+    "minRequestAmount": 20          // 统计窗口内至少 20 次请求才触发判定
+  }
+]
+</code></pre>
+    <p>示例二：令牌桶限流的最小可用实现（Guava，一行代码嵌进接口入口）：</p>
+<pre><code>import com.google.common.util.concurrent.RateLimiter;
+
+public class OrderRateLimiter {
+    // 每秒发放 200 个令牌，多余的调用会阻塞等待（最多等 200ms）
+    private static final RateLimiter limiter = RateLimiter.create(200);
+
+    public static boolean tryAcquire() {
+        return limiter.tryAcquire(200, java.util.concurrent.TimeUnit.MILLISECONDS);
+    }
+}
+
+// 使用：放行失败直接返回限流提示，绝不能默默排队到超时
+if (!OrderRateLimiter.tryAcquire()) {
+    return Result.tooManyRequests("系统繁忙，请 1 分钟后重试");
+}
+</code></pre>
+    <div class="tip">💡 提示：限流返回的信息不要泄露实现细节（别说"令牌桶耗尽"），给用户一句可操作的提示 + 一个可预期的等待时间，对客服压力的缓解比技术优化还大。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：用表格对比四种限流算法的突发处理能力、平滑性、实现复杂度，各写一个你业务里的候选场景。</li>
+      <li><strong>任务 2</strong>：本地跑起 Sentinel Dashboard（或 Resilience4j），为一个模拟接口配置 QPS 限流并验证超过阈值时的返回。</li>
+      <li><strong>任务 3</strong>：为该接口再配置一条"慢调用比例 50%"熔断规则，用 sleep 模拟慢响应，观察快速失败与半开恢复的过程。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：设计一份降级预案表，列出 5 个非核心功能，各自写明降级动作、开关所在配置项和预期用户体验变化。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://sentinelguard.io/zh-cn/docs/" target="_blank">Sentinel 官方中文文档</a> — <span class="desc">限流熔断规则配置的权威依据，重点看"熔断降级"与"系统自适应限流"章节</span></li>
+      <li>📖 <a href="https://sentinelguard.io/zh-cn/docs/open-source-framework-integrations.html" target="_blank">Sentinel 开源框架适配</a> — <span class="desc">Spring Boot / Dubbo / gRPC 等接入方式，照着 5 分钟接入</span></li>
+      <li>📖 <a href="https://resilience4j.readme.io/docs/circuitbreaker" target="_blank">Resilience4j CircuitBreaker 文档</a> — <span class="desc">轻量级 Java 弹性库，Spring Boot 项目可直接引入</span></li>
+      <li>📖 <a href="https://github.com/Netflix/Hystrix/wiki" target="_blank">Netflix Hystrix Wiki</a> — <span class="desc">熔断与舱壁隔离思想的源头文档，理解设计哲学必读</span></li>
+      <li>📖 <a href="https://en.wikipedia.org/wiki/Token_bucket" target="_blank">Token bucket（维基百科）</a> — <span class="desc">算法原理与数学公式推导，判断限流参数时的理论依据</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说出令牌桶和漏桶的核心区别以及各自该用在哪类服务前吗？</li>
+      <li>我的关键接口是否都有限流和熔断两道防线？</li>
+      <li>我的降级开关是否都在配置中心，能否 1 分钟内生效？</li>
+      <li>限流触发后，用户看到的提示是否清晰、可操作？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m5-2.html">← 上一节：JVM 调优与 SQL 优化</a>
+    <a href="s4-m5-4.html">下一节：容量规划与弹性伸缩 →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>低代码与 AI 能力集成 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块四 · 低代码开发 / <strong>低代码与 AI 能力集成</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>低代码与 AI 能力集成</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块四 · 低代码开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说出低代码集成 AI 的<strong>三条路径</strong>（平台内置能力、模型 API 连接器、自研 AI 服务），并按场景选路。</li>
+      <li>能够为业务场景设计<strong>提示词 + 结构化输出</strong>，让 AI 结果直接落进表单字段与流程节点。</li>
+      <li>能够落地至少一个典型场景：表单智能打标、审批意见摘要或单据信息自动填充。</li>
+      <li>能够给出幻觉兜底、数据隐私、成本控制与<strong>人工复核</strong>四条治理要求。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：三条集成路径与选型</h3>
+    <p><strong>路径一：平台内置 AI</strong>——不少低代码平台提供"AI 字段"（自动生成摘要、翻译、抽取）或 AI 应用生成器，接入最快但能力固定、按用量计费，适合标准化的文本处理。<strong>路径二：模型 API 连接器</strong>——把大模型服务（通义、豆包、OpenAI 兼容接口等）注册成平台连接器，在表单事件、流程节点里直接调用，灵活性与开发成本居中，<strong>是本模块推荐的默认路线</strong>。<strong>路径三：自研 AI 服务</strong>——把提示词、检索（RAG）、多模型路由、缓存全部封在自己的 FastAPI / Spring Boot 服务里，平台只调一个业务接口；当涉及私有知识库、复杂编排、成本优化时必须走这条。判断标准很简单：逻辑是否会频繁迭代、是否需要业务数据参与检索——会，就自己托管。</p>
+
+    <h3>知识点 2：提示词与结构化输出是落地关键</h3>
+    <p>低代码的字段是<strong>强类型</strong>的（枚举、数字、日期），而模型输出是自由文本，两者对接必须靠<strong>结构化输出</strong>：在提示词里明确 JSON Schema、字段含义、取值范围与"不确定时怎么办"，并要求只输出 JSON 不输出解释文字。提示词的稳定结构是：角色（你是财务审核助手）→ 任务（从报销事由中提取类别与风险等级）→ 约束（类别只能从给定枚举里选，金额线索缺失填 unknown）→ 输出格式（JSON 样例）→ 少样本示例（2–3 个输入输出对）。返回后<strong>先校验再使用</strong>：JSON 解析失败、枚举越界都要有兜底值与降级策略，绝不能把模型输出直接当可信数据写库。</p>
+    <p>常见坑：把整段表单原始数据不加筛选地发给公有云模型（敏感信息外泄）；提示词只写一句话导致输出格式不稳定；没有温度（temperature）约束，同一单据两次调用结果不一致，审批流程来回翻烧饼。</p>
+
+    <h3>知识点 3：治理——AI 只做建议，人做决定</h3>
+    <p>在审批、审核类流程里集成 AI，四条治理要求必须写进方案：<strong>① 幻觉兜底</strong>——AI 输出标注来源与置信度，低置信度转人工；<strong>② 数据脱敏</strong>——发给外部模型前隐去姓名证件号等字段，或改用私有化部署模型；<strong>③ 成本控制</strong>——限制单条请求 Token 上限、缓存高频结果、对调用量设日预算告警；<strong>④ 人工复核</strong>——AI 结果以"建议"形式呈现（预填字段 + 高亮提示），最终提交仍由人确认，且全流程记录"哪些字段由 AI 生成"以便审计。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：给"报销事由自动打标"设计的提示词模板（可直接粘进连接器的请求体），重点是枚举约束与只输出 JSON：</p>
+<pre><code>角色：你是公司财务共享中心的单据分类助手。
+任务：根据报销单的"事由"和"明细描述"，判断费用类别与风险等级。
+约束：
+1. category 只能从 ["差旅交通","住宿","办公用品","业务招待","其他"] 中选择；
+2. risk 只能是 "low" / "mid" / "high"，事由含糊或金额与事由明显不符时给 "high"；
+3. 缺少判断依据时 confidence 填 0.3 以下，不要编造；
+4. 只输出 JSON，不要任何解释文字。
+输出格式：
+{"category":"差旅交通","risk":"low","confidence":0.92,"reason":"北京-上海高铁往返"}
+
+事由：8月12日去上海拜访客户，高铁来回，住宿两晚
+明细：高铁票 1108 元；酒店 960 元</code></pre>
+    <p>示例二：把 AI 能力封成自研接口，低代码平台以连接器调用它——注意超时、降级与"AI 结果仅作建议"的返回标记：</p>
+<pre><code>import json, requests
+from pydantic import BaseModel, ValidationError
+
+CATEGORIES = {"差旅交通", "住宿", "办公用品", "业务招待", "其他"}
+PROMPT_TPL = open("tag_prompt.txt", encoding="utf-8").read()
+
+class TagResult(BaseModel):
+    category: str
+    risk: str
+    confidence: float
+    reason: str = ""
+
+def ai_tag(reason: str, items: str) -> dict:
+    """低代码连接器入口：返回可直接写入表单字段的结构"""
+    prompt = PROMPT_TPL.format(reason=reason, items=items)
+    try:
+        resp = requests.post(
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            headers={"Authorization": "Bearer ${DASHSCOPE_API_KEY}"},
+            json={"model": "qwen-plus",
+                  "messages": [{"role": "user", "content": prompt}],
+                  "temperature": 0, "response_format": {"type": "json_object"}},
+            timeout=8)                                  # 必须设超时
+        data = json.loads(resp.json()["choices"][0]["message"]["content"])
+        result = TagResult(**data)                      # 先校验再使用
+        assert result.category in CATEGORIES and result.risk in {"low", "mid", "high"}
+        return {"ok": True, "suggest": result.model_dump(), "source": "ai"}
+    except (requests.Timeout, ValidationError, KeyError, AssertionError):
+        return {"ok": False, "suggest": {"category": "其他", "risk": "mid",
+                                         "confidence": 0.0, "reason": "AI 不可用，已降级"},
+                "source": "fallback"}                   # 降级：人工必填</code></pre>
+    <div class="tip">💡 低代码侧把返回的 <code>suggest</code> 预填到字段并标黄提示"AI 建议，提交前请确认"，把 <code>source=fallback</code> 的单据强制路由给人工审核——这一步比模型选型更能决定线上效果。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为你的低代码应用挑 3 个 AI 切入点（如事由打标、审批意见摘要、附件信息抽取），按三条路径给出各自的实现选型与理由。</li>
+      <li><strong>任务 2</strong>：按示例一写出打标提示词，用真实单据测试 10 条，统计 JSON 解析成功率与类别准确率，迭代提示词直到解析成功率 100%、准确率 ≥ 90%。</li>
+      <li><strong>任务 3</strong>：完成示例二的接口与平台连接器对接，配置超时 8 秒与失败降级，人为断网验证单据仍能提交且被路由到人工审核。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：给 AI 调用加上结果缓存与每日预算告警，对比缓存前后 100 次调用的成本差异。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://www.coze.cn/docs" target="_blank">Coze（扣子）官方文档</a> — <span class="desc">看平台级 AI 能力如何以可视化节点嵌入应用，可作为"平台内置 AI"路径的样本。</span></li>
+      <li>📖 <a href="https://www.promptingguide.ai/zh/" target="_blank">Prompt Engineering Guide 中文版</a> — <span class="desc">提示词结构、少样本示例、结构化输出的系统教程，直接服务本节提示词设计。</span></li>
+      <li>📖 <a href="https://python.langchain.com/docs/" target="_blank">LangChain 官方文档</a> — <span class="desc">当 AI 编排变复杂（多步、RAG、工具调用）时自研服务的框架选择参考。</span></li>
+      <li>📖 <a href="https://www.aliyun.com/product/bailian" target="_blank">阿里云百炼</a> — <span class="desc">国内可用的大模型服务与 OpenAI 兼容接口，用于跑通示例二的真实调用。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清三条 AI 集成路径的差异，并为给定场景选出合适的一条吗？</li>
+      <li>我的提示词是否包含角色、任务、枚举约束、输出格式和至少一个示例？</li>
+      <li>AI 返回的数据在我这里有解析校验、枚举校验与降级兜底吗？</li>
+      <li>我能向评审人说明幻觉、隐私、成本、人工复核四项治理措施分别落在哪一环吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m4-3.html">← 上一节：低代码与自定义代码扩展结合</a>
+    <a href="s4-m1-1.html">下一节：服务拆分原则与设计 →</a>
+  </div>
+
+</div>
+</body>
+</html>

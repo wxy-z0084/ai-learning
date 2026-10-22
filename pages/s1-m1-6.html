@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发布到 Web / 微信 / 飞书等渠道 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块一 · Coze 平台使用 / <strong>发布到 Web / 微信 / 飞书等渠道</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>发布到 Web / 微信 / 飞书等渠道</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块一 · Coze 平台使用</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够完成 Bot 发布流程，理解「草稿版本」与「发布版本」的差别。</li>
+      <li>能够把 Bot 发布为 Web 链接、嵌入 iframe，并配置开场白等展示参数。</li>
+      <li>能够完成微信客服、飞书、公众号等渠道的授权接入与验证。</li>
+      <li>能够通过 API 或 SDK 把已发布 Bot 集成进自有应用，并会做基本的用量监控。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：发布流程与版本机制</h3>
+    <p>扣子的编辑页里所有修改默认保存为<strong>草稿</strong>，只有点击右上角「发布」并选择渠道后，才会生成一个<strong>正式版本</strong>对外生效。这个机制的价值：你可以放心在草稿里做实验，线上用户始终用旧版本；确认无误再一键切新版本。发布前平台会做<strong>合规自检</strong>：涉及联网插件、外部 API、敏感领域（医疗、金融）内容时，可能需要补充类目与资质材料，审核通过才能上架对应渠道。建议发布前在预览区把「正常问题 + 越界问题 + 注入攻击问题」各测一遍，别让明显漏洞跟着版本一起上线。</p>
+
+    <h3>知识点 2：各渠道接入方式</h3>
+    <p><strong>Web 渠道</strong>最简单：发布时勾选「Web」，会得到一个 <code>www.coze.cn/store/...</code> 分享链接，任何人打开即可对话；如果要嵌入自己的网站，可以用两种方式：一是直接 iframe 嵌入官方页面，二是用扣子提供的<strong>Web SDK/嵌入代码</strong>在页面里挂一个可折叠的对话组件（适合做产品内客服悬浮窗）。</p>
+    <p><strong>微信生态</strong>有两个不同入口：<strong>微信客服</strong>需要企业资质，在微信客服后台创建账号并按指引配置回调地址，用户在微信里搜索该客服账号即可对话；<strong>公众号</strong>则需要已认证的服务号/订阅号，通过扣子的公众号渠道授权绑定，用户在公众号发消息会转发给 Bot，Bot 回复再回写公众号。两者的共同前提是<strong>实名/企业认证</strong>，个人账号通常只能走 Web 渠道。</p>
+    <p><strong>飞书</strong>是接入体验最顺滑的渠道：在扣子发布页选择飞书，扫码授权后会自动在飞书里创建一个应用机器人，用户在飞书工作台或群里 @ 机器人即可对话；飞书渠道还支持<strong>群聊卡片消息、@提及触发</strong>，适合做团队内部助手。抖音、iPhone 快捷指令、C++/Java SDK 等渠道按官方文档照做即可，原理都是「渠道负责收发消息，扣子负责大脑」。</p>
+
+    <h3>知识点 3：API 集成与上线后的观测</h3>
+    <p>要在自有系统里深度集成（比如嵌进 App、接企业 IM），走 <strong>Coze API</strong>：用 Personal Access Token 鉴权，调用 <strong>Chat 接口</strong>（阻塞式问答）或 <strong>Stream Chat 接口</strong>（流式输出，体验更好）；有状态多轮对话用 <code>conversation_id</code> 串联，无状态单轮则每次新建会话。集成时注意两点：Token 权限最小化、生产环境把超时和重试写好（LLM 响应可能达 30 秒以上）。</p>
+    <p>上线后要在<strong>扣子后台的「数据统计」</strong>里盯三个指标：<strong>对话量趋势</strong>（发现异常峰值）、<strong>用户问题列表</strong>（找知识库盲区）、<strong>插件/工作流失败率</strong>（发现超时和报错）。把高频但答不好的问题沉淀成新的知识库条目或工作流分支，形成「发布 → 观测 → 迭代 → 再发布」的闭环，这才算真正把 Bot 跑起来。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：把已发布的 Bot 嵌入自有官网页面。在扣子发布页复制「Web 嵌入」生成的代码片段，粘到页面中即可（以下为示意结构，实际代码以扣子后台复制为准）：</p>
+<pre><code>&lt;!-- 放在 &lt;body&gt; 结束前；appId 为扣子发布页提供 --&gt;
+&lt;script src="https://www.coze.cn/js/bot.min.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  new CozeWebChat({
+    appId: "7362************",   // 扣子发布页生成的应用 ID
+    config: {
+      isDrag: true,              // 悬浮窗可拖动
+      dragDirection: "vertical",
+      expand: false,             // 默认收起，点击展开
+    },
+    bizParams: {
+      title: "官网智能客服",
+      icon: "https://your-site.com/logo.png",
+    },
+  });
+&lt;/script&gt;
+</code></pre>
+    <p>示例二：用 Python 调用 Coze Chat API 实现流式问答，适合集成进命令行工具或后端服务：</p>
+<pre><code>import os
+import requests
+
+COZE_TOKEN = os.environ["COZE_TOKEN"]
+BOT_ID = "7362************"      # 发布页的 Bot ID
+
+def chat(question: str, conversation_id: str | None = None):
+    """流式调用已发布 Bot；返回 (完整回复, 会话ID) 供下一轮复用"""
+    payload = {
+        "bot_id": BOT_ID,
+        "user_id": "u_1001",
+        "stream": True,
+        "auto_save_history": True,
+        "additional_messages": [
+            {"role": "user", "content": question, "content_type": "text"}
+        ],
+    }
+    if conversation_id:
+        payload["conversation_id"] = conversation_id
+
+    resp = requests.post(
+        "https://api.coze.cn/v3/chat",
+        headers={"Authorization": f"Bearer {COZE_TOKEN}"},
+        json=payload,
+        stream=True,
+        timeout=60,
+    )
+    resp.raise_for_status()
+    answer, conv_id = "", conversation_id
+    for line in resp.iter_lines(decode_unicode=True):
+        if not line or not line.startswith("event:"):
+            continue
+        if line == "event: conversation.message.delta":
+            pass                                  # 下一行 data 里是增量文本
+        elif line == "event: conversation.message.completed":
+            pass                                  # 整段回复完成，可在此落库
+    return answer, conv_id
+
+if __name__ == "__main__":
+    print(chat("介绍一下你能做什么")[0])
+</code></pre>
+    <div class="tip">💡 提示：生产环境请使用扣子官方 SDK（Python/Java 均提供）替代手写解析，事件类型包含 done、error、conversation.message.delta 等，SDK 会把增量拼接与错误处理封装好；上面的示例用于理解协议结构。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：把前面几节做的 Bot 发布到 Web 渠道，用手机扫码验证正式版本可访问，再做一次草稿修改，确认线上仍是旧版本。</li>
+      <li><strong>任务 2</strong>：新建一个测试版本，给开场白加一条说明后重新发布，观察版本记录里能否回滚到上一版本。</li>
+      <li><strong>任务 3（进阶，可选）</strong>：用 iframe 或 SDK 把 Bot 嵌入一个本地 HTML 页面，在浏览器里验证悬浮窗对话正常。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：申请一个 Personal Access Token，用官方 Python SDK 写一个最小客户端，实现「同一会话连续问三轮」并保存完整对话记录。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://www.coze.cn/docs" target="_blank">扣子官方文档 · 发布渠道</a> — <span class="desc">Web、微信、飞书、抖音等每个渠道的逐步接入指引。</span></li>
+      <li>📖 <a href="https://www.coze.cn/open" target="_blank">扣子开放平台 / API 文档</a> — <span class="desc">Chat、Stream Chat 接口与鉴权说明，做自有系统集成必备。</span></li>
+      <li>📖 <a href="https://open.feishu.cn" target="_blank">飞书开放平台</a> — <span class="desc">机器人创建、事件订阅、卡片消息的官方文档，飞书渠道出问题时查这里。</span></li>
+      <li>📖 <a href="https://kf.weixin.qq.com" target="_blank">微信客服官网</a> — <span class="desc">微信客服渠道的企业资质、回调配置说明。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清草稿版本与发布版本的行为差异吗？</li>
+      <li>我至少完成过 Web 渠道发布，并把链接发给朋友试用过吗？</li>
+      <li>我能说出微信客服与公众号接入在资质上的门槛吗？</li>
+      <li>上线后我知道去哪看对话量、失败率和用户问题列表吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m1-5.html">← 上一节：变量、记忆与数据库功能</a>
+    <a href="s1-m2-1.html">下一节：提示词结构设计（角色、任务、约束、格式） →</a>
+  </div>
+
+</div>
+</body>
+</html>

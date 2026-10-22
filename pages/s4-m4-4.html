@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>灰度发布与回滚机制 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块四 · 企业级项目智能化升级 / <strong>灰度发布与回滚机制</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>灰度发布与回滚机制</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块四 · 企业级项目智能化升级</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够为 AI 能力上线制定分阶段灰度策略（内部员工 → 1% → 10% → 全量），并为每阶段设定放量与熔断条件。</li>
+      <li>能够区分并实现代码回滚、模型回滚、配置回滚三种不同的回滚手段。</li>
+      <li>能够建立 AI 效果的在线监控指标（成功率、置信度分布、人工改写率）作为灰度放量的决策依据。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：为什么要灰度，以及分流维度</h3>
+    <p>AI 能力的失败模式和传统代码不一样：代码错了会报错，AI 错了会"一本正经地胡说八道"，只有业务指标才能暴露。所以 AI 上线必须<strong>小流量验证</strong>。分流维度按业务选：<strong>按用户 ID 取模</strong>（最常用，需保证同一用户体验一致）、<strong>按租户放量</strong>（To B 场景保护大客户）、<strong>按地域/渠道</strong>（A/B 测试友好）。</p>
+    <p>灰度不是一次性的开关，而是<strong>漏斗式放量</strong>：内部 dogfooding（自己公司客服先用）→ 1% → 10% → 50% → 全量，每一档至少跑 24-72 小时覆盖一个完整业务周期（周末效应很容易漏掉）。</p>
+
+    <h3>知识点 2：三层回滚：代码、模型、配置</h3>
+    <p><strong>代码回滚</strong>是基础，要求发布系统支持一键切回旧版本，且数据库变更向后兼容（只加字段不删字段，先双写再停读）。<strong>模型回滚</strong>是 AI 特有的：新模型上线必须保留旧模型服务在线，切换只是路由层的权重变化，回滚就是把权重调回去，不用重新部署。模型文件要带版本号和校验和，确保回滚到的是"当时验证过的那个"。</p>
+    <p><strong>配置回滚</strong>最容易被忽略却最常用：置信度阈值、提示词版本、白名单比例都应该在配置中心里，改坏了秒级改回来，比走发布流程快两个数量级。核心原则：<strong>把所有"经常要调的东西"从代码里挪出去</strong>。</p>
+
+    <h3>知识点 3：灰度监控与自动熔断</h3>
+    <p>放量决策不能靠感觉，至少盯四条曲线：<strong>AI 调用成功率</strong>（低于 99% 停止放量）、<strong>平均置信度分布</strong>（突然整体下移说明输入分布漂移）、<strong>人工改写率/推翻率</strong>（AI 生成结果被人工改动的比例，是效果的直接指标）、<strong>P95 延迟与 Token 成本</strong>。这些指标要按灰度分组分别展示，否则全量数据会把灰度问题稀释掉。</p>
+    <p>进阶做法是<strong>自动熔断</strong>：Prometheus 配置告警规则，当灰度组错误率超过阈值持续 5 分钟，自动把灰度比例打回 0，并通知值班人。人反应再快也快不过规则引擎。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：基于用户 ID 取模的灰度分流（Java，网关层 AOP 切面思路）：</p>
+<pre><code>public class GrayRouting {
+    // 灰度比例从配置中心动态读取，改配置即生效，无需发版
+    private static volatile int grayPercent = 1;   // 上线初期 1%
+
+    public static boolean useNewAi(String userId) {
+        long hash = Math.abs(userId.hashCode() % 100);
+        return hash &lt; grayPercent;   // 同一用户永远命中同一组，体验一致
+    }
+
+    // 紧急回滚入口：把灰度比例打回 0，等于新 AI 能力全量下线
+    public static void emergencyFallback() { grayPercent = 0; }
+}
+</code></pre>
+    <p>示例二：Prometheus 自动熔断告警规则——灰度组错误率持续 5 分钟超阈值即触发：</p>
+<pre><code># prometheus-rules.yml
+groups:
+  - name: ai-gray-rules
+    rules:
+      - alert: AIGrayErrorRateTooHigh
+        expr: |
+          sum(rate(ai_gateway_errors_total{group="gray"}[5m]))
+          / sum(rate(ai_gateway_requests_total{group="gray"}[5m]))
+          &gt; 0.02
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "灰度组错误率超过 2%，请自动将灰度比例回退至 0"
+</code></pre>
+    <div class="tip">💡 提示：每次灰度放量前，在发布单里预先写好"放量条件"和"熔断条件"，出事时照单执行，不用临场争论。AI 提示词变更也算发布，同样走灰度。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为你计划上线的 AI 功能写一份灰度计划表，包含 5 个阶段、每阶段的流量比例、观察时长和放量条件。</li>
+      <li><strong>任务 2</strong>：实现用户取模分流逻辑并写单元测试，验证"同一用户 100 次请求分组结果一致"。</li>
+      <li><strong>任务 3</strong>：列出你的场景下需要监控的 4 个核心指标，写明各自的数据来源和告警阈值。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：演练一次完整回滚：把灰度比例从 10% 回退到 0，记录耗时并找出流程中所有慢环节。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://martinfowler.com/articles/feature-toggles.html" target="_blank">Martin Fowler — Feature Toggles</a> — <span class="desc">功能开关与灰度放量的鼻祖文章，配合配置中心食用</span></li>
+      <li>📖 <a href="https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/" target="_blank">Prometheus 告警规则官方文档</a> — <span class="desc">照着写灰度自动熔断规则，含 expr 语法与 for 语义</span></li>
+      <li>📖 <a href="https://nacos.io/zh-cn/docs/v2/guide/config/config-operation.html" target="_blank">Nacos 配置管理指南</a> — <span class="desc">把灰度比例、阈值、提示词版本放进配置中心的标准做法</span></li>
+      <li>📖 <a href="https://sre.google/books/" target="_blank">Google SRE 电子书</a> — <span class="desc">发布策略、SLO 与事故应急方法论的权威参考</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我的灰度方案是否写明了每一档的放量条件和熔断条件？</li>
+      <li>我能否在 1 分钟内完成一次配置级回滚？</li>
+      <li>我的监控是否能按灰度分组单独看到错误率与改写率？</li>
+      <li>如果模型效果突然劣化，我的系统会在几分钟内自动止损？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m4-3.html">← 上一节：新旧系统数据与接口打通</a>
+    <a href="s4-m5-1.html">下一节：性能压测（JMeter）与瓶颈定位 →</a>
+  </div>
+
+</div>
+</body>
+</html>

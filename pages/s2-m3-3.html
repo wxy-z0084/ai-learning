@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>向量数据库使用（Milvus / Chroma / FAISS） · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块三 · RAG（检索增强生成）/ <strong>向量数据库使用（Milvus / Chroma / FAISS）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>向量数据库使用（Milvus / Chroma / FAISS）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块三 · RAG（检索增强生成）</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说清向量数据库解决什么问题，以及 <strong>HNSW、IVF</strong> 等索引类型的基本原理与取舍。</li>
+      <li>能够根据规模与部署要求在 Milvus、Chroma、FAISS 三者之间做出合理选型。</li>
+      <li>能够独立完成 Chroma 的本地持久化建库与检索，并使用元数据过滤缩小检索范围。</li>
+      <li>能够使用 Docker 启动 Milvus、用 pymilvus 建集合、插入带元数据的向量并执行 Top-K 查询。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：向量数据库在 RAG 中的位置</h3>
+    <p>切分得到的成千上万个 chunk，每个都要先通过嵌入模型变成向量，然后<strong>存进向量数据库统一管理</strong>。它负责三件事：存储向量与原文/元数据、建立近似最近邻（ANN）索引加速检索、对外提供 Top-K 相似度查询与元数据过滤。没有向量库，你就只能用暴力遍历算相似度——数据上万条后延迟会失控。</p>
+    <p>关于索引：<strong>HNSW</strong>（分层可导航小世界图）查询快、召回高、内存占用大，是当前最主流的选择；<strong>IVF</strong>（倒排文件）先把向量聚类成若干桶，查询时只搜最近的若干桶，内存省但需要训练且召回略低。生产经验：数据量小于百万级、内存充足时直接 HNSW；追求性价比可选 IVF_PQ 之类的产品量化索引压缩内存。</p>
+
+    <h3>知识点 2：三件套怎么选——FAISS / Chroma / Milvus</h3>
+    <p><strong>FAISS</strong>（Meta 开源）本质是一个<strong>向量检索算法库</strong>，不是数据库：没有持久化服务、没有元数据过滤的完整体系，但速度极快、索引种类最全，适合做原型验证、离线批量检索或嵌入到你自己的存储架构中。<strong>Chroma</strong>是<strong>开发者友好的嵌入式向量数据库</strong>，pip 安装即可用，API 简洁、自带持久化和元数据过滤，是学习和小项目的首选。<strong>Milvus</strong>是<strong>生产级分布式向量数据库</strong>：支持亿级向量、分布式扩缩容、多种索引、混合检索（稠密+稀疏）、分区与租户隔离，有 Zilliz Cloud 托管版，是正式上线系统的常见选择。</p>
+    <p>一句话选型：<strong>学习与小工具用 Chroma，算法实验与自建存储用 FAISS，生产大规模用 Milvus（或其云版 Zilliz）。</strong></p>
+
+    <h3>知识点 3：Milvus 核心概念与运维要点</h3>
+    <p>Milvus 的对象层级是 <strong>Collection（集合）→ Partition（分区）→ Entity（实体）</strong>。一个 Collection 要先定义 Schema：主键字段、向量字段（必须固定维度）、若干标量字段（用于过滤，如 source、page、date）。建集合时通常选择 <strong>consistency_level</strong>（强一致/Bounded/Stale）与索引类型（常用 HNSW 或 AUTOINDEX）。写入后需要<strong>建索引并 load 到内存</strong>才能高效查询——忘记 load 会直接查询报错或极慢。本地开发用 <code>milvus standalone</code> 的 Docker Compose 一键启动即可。</p>
+
+    <h3>知识点 4：检索调用的正确姿势</h3>
+    <p>查询时传入查询向量、Top-K，以及可选的 <strong>filter 表达式</strong>（如 <code>source == "manual.pdf" and page &gt;= 10</code>）。两个常见坑：① <strong>维度不匹配</strong>——查询向量维度与建集合时声明的不一致会直接报错，换嵌入模型必须重建集合；② <strong>只存向量不存原文</strong>——务必把 chunk 文本和元数据一起存入，否则检索到 Top-K 后还要再回查一次主库，徒增延迟。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：Chroma 本地持久化建库，LangChain 集成检索（最简上手路径）：</p>
+<pre><code># pip install langchain-chroma chromadb sentence-transformers
+from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+
+embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-small-zh-v1.5")
+texts = ["如何重置密码", "如何修改绑定手机号", "发票开具流程说明"]
+metadatas = [{"source": "faq.pdf", "page": i + 1} for i in range(3)]
+
+store = Chroma.from_texts(
+    texts=texts, embedding=embeddings, metadatas=metadatas,
+    persist_directory="./chroma_demo",          # 持久化到本地目录
+    collection_name="kb_demo",
+)
+# 带元数据过滤的检索：只在第 1、2 页中搜
+hits = store.similarity_search_with_score("密码忘了怎么找回", k=2, filter={"page": {"$lte": 2}})
+for doc, score in hits:
+    print(f"距离={score:.4f} | {doc.metadata} | {doc.page_content}")</code></pre>
+
+    <p>示例二：Milvus Standalone 启动与 pymilvus 原生操作：</p>
+<pre><code># 启动（官方 docker-compose）：curl -sfL https://raw.githubusercontent.com/milvus-io/milvus/master/scripts/standalone_embed.sh | bash -s "start"
+# pip install pymilvus
+from pymilvus import MilvusClient, DataType
+
+client = MilvusClient(uri="./milvus_demo.db")   # 也可连 http://localhost:19530
+
+if client.has_collection("kb"):
+    client.drop_collection("kb")
+client.create_collection(
+    collection_name="kb",
+    dimension=512,                              # 必须与嵌入模型维度一致
+    metric_type="COSINE",                       # 与嵌入模型的归一化输出匹配
+    primary_field="id",
+    vector_field="vector",
+    text_field="text",                          # 4.x 起支持自动把文本转为向量字段
+    metadata_fields=["source"],
+)
+
+client.insert("kb", data=[
+    {"id": 1, "text": "如何重置密码", "source": "faq.pdf"},
+    {"id": 2, "text": "发票开具流程说明", "source": "manual.pdf"},
+])
+res = client.search("kb", data=["密码忘了怎么找回"], limit=2,
+                    filter='source == "faq.pdf"', output_fields=["text", "source"])
+print(res[0])</code></pre>
+
+    <div class="tip">💡 提示：学习阶段用 Chroma 的 sqlite 后端或 Milvus 的本地文件模式（milvus_demo.db）零成本起步；上生产前再切换到正式部署，API 基本一致，迁移成本主要在连接方式与运维。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：用 Chroma 把上一节切分好的 30+ 个 chunk 持久化建库，重启程序后确认数据还在，并完成 5 次语义检索。</li>
+      <li><strong>任务 2</strong>：给每个 chunk 加上 source、page 元数据，练习用 filter 表达式实现"只在某文档内检索"，对比加过滤前后的结果差异。</li>
+      <li><strong>任务 3</strong>：用 Docker 启动 Milvus Standalone，用 pymilvus 建集合、批量插入 1000 条随机向量，测量 Top-10 查询延迟。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：同一份数据在 Chroma 与 Milvus 各存一份，比较 10 个查询的 Top-3 结果重合率，理解"不同引擎、相同向量"的结果一致性问题。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://milvus.io/docs" target="_blank">Milvus 官方文档</a> — <span class="desc">概念、部署方式、索引选择与调优参数的权威手册，先读 Overview 与 Create Collection。</span></li>
+      <li>📖 <a href="https://docs.trychroma.com" target="_blank">Chroma 官方文档</a> — <span class="desc">嵌入式向量库上手指南，含持久化、过滤与 LangChain 集成示例。</span></li>
+      <li>📖 <a href="https://faiss.ai" target="_blank">FAISS 官方网站</a> — <span class="desc">索引类型大全与性能调优 wiki，适合深入理解 ANN 算法。</span></li>
+      <li>🛠 <a href="https://zilliz.com/cloud" target="_blank">Zilliz Cloud（Milvus 托管云）</a> — <span class="desc">免费额度可用于体验生产级 Milvus，免去自行运维。</span></li>
+      <li>📖 <a href="https://github.com/milvus-io/milvus" target="_blank">Milvus GitHub 仓库</a> — <span class="desc">Docker Compose 部署脚本与社区 issue，部署卡住时先搜这里。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清 FAISS、Chroma、Milvus 三者的定位差异与选型边界吗？</li>
+      <li>我能独立完成 Chroma 的持久化建库、元数据过滤检索吗？</li>
+      <li>我能用 Docker 启动 Milvus 并完成建集合、插入、查询全流程吗？</li>
+      <li>我遇到"维度不匹配""忘记 load"这类报错时能立刻定位原因吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m3-2.html">← 上一节：Embedding 向量化原理</a>
+    <a href="s2-m3-4.html">下一节：检索策略（混合检索、重排序） →</a>
+  </div>
+
+</div>
+</body>
+</html>

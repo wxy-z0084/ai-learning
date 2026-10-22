@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MyBatis / JPA 数据访问 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块一 · Java / SpringBoot / <strong>MyBatis / JPA 数据访问</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>MyBatis / JPA 数据访问</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块一 · Java / SpringBoot</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够解释 ORM 的基本思想，并说清 <strong>MyBatis（SQL 映射）与 JPA（对象关系映射）</strong>的定位差异与选型依据。</li>
+      <li>能够编写 MyBatis 的 Mapper 接口与 XML，正确使用 <strong>#{} 与 ${}</strong> 并说明二者的安全含义。</li>
+      <li>能够使用 <strong>JPA 的 CrudRepository/JpaRepository</strong> 与派生查询方法完成常见数据操作。</li>
+      <li>能够识别并解决 <strong>N+1 查询</strong>问题，理解 <strong>@Transactional</strong> 事务边界与失效场景。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：两种数据访问范式</h3>
+    <p><strong>MyBatis</strong> 是 SQL 映射框架：Java 方法与 SQL 语句一一对应，SQL 完全可控，复杂查询、多表关联、报表统计写起来顺手，是国内大量存量系统的标配；代价是 SQL 样板代码多、对象与表的映射要手工维护。<strong>JPA（Hibernate 实现）</strong> 是 ORM：实体类映射表、属性映射列，通过 Repository 方法名或 @Query 操作对象，自带<strong>一级缓存、脏检查与懒加载</strong>，CRUD 与简单查询代码量极小；代价是 SQL 隐藏在框架后，优化复杂查询需要看懂生成的 SQL。选型经验：<strong>CRUD 多、模型稳定选 JPA；报表与复杂 SQL 多选 MyBatis</strong>，二者也可在一个项目中共存（JPA 管主流程，MyBatis 管复杂查询）。</p>
+
+    <h3>知识点 2：MyBatis 的安全与映射要点</h3>
+    <p>核心规则：<strong>#{} 是预编译占位符</strong>（PreparedStatement 的 ?），参数以传值方式绑定，天然防注入；<strong>${} 是字符串直接拼接</strong>，会带来 SQL 注入风险，只允许用于排序字段、表名等"不能参数化的位置"，且必须用白名单校验。常见坑：LIKE 模糊查询要用 <strong>CONCAT('%', #{kw}, '%')</strong> 或绑定前后缀，而不是 ${kw}；返回 resultMap 用于列名与属性不一致或一对多映射；用 <strong>useGeneratedKeys</strong> 回填自增主键。</p>
+
+    <h3>知识点 3：JPA 的懒加载、N+1 与事务</h3>
+    <p>JPA 实体间的一对多、多对一关联默认<strong>懒加载</strong>——首次访问时才发 SQL。便利的背后是经典性能陷阱 <strong>N+1 问题</strong>：先查出 10 个 Ticket，遍历时每个 Ticket 再查一次关联的 User，1 次查询变 11 次。解决办法：用 <strong>@EntityGraph</strong> 或 <strong>fetch join</strong> 一次性关联取出，或改用投影 DTO。<strong>@Transactional</strong> 默认只对 RuntimeException 回滚，边界应放在 Service 层且"一次业务操作一个事务"；注意<strong>事务内不要做远程调用</strong>（拉长数据库连接持有时间），自调用不走代理也会导致事务失效。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：MyBatis Mapper 接口与 XML（注意 #{} 与安全的 LIKE 写法）：</p>
+<pre><code>// TicketMapper.java
+@Mapper
+public interface TicketMapper {
+    List&lt;Ticket&gt; search(@Param("status") String status,
+                        @Param("keyword") String keyword,
+                        @Param("offset") int offset,
+                        @Param("limit") int limit);
+
+    int insert(Ticket ticket);   // useGeneratedKeys 回填 id
+}
+</code></pre>
+<pre><code>&lt;!-- resources/mapper/TicketMapper.xml --&gt;
+&lt;select id="search" resultType="com.example.domain.Ticket"&gt;
+    SELECT id, title, status, created_at
+    FROM ticket
+    WHERE status = #{status}
+      AND title LIKE CONCAT('%', #{keyword}, '%')  &lt;!-- 禁止写成 ${keyword} --&gt;
+    ORDER BY id DESC
+    LIMIT #{offset}, #{limit}
+&lt;/select&gt;
+
+&lt;insert id="insert" useGeneratedKeys="true" keyProperty="id"&gt;
+    INSERT INTO ticket (title, description, status)
+    VALUES (#{title}, #{description}, #{status})
+&lt;/insert&gt;
+</code></pre>
+    <p>示例二：JPA Repository、避免 N+1 的查询与事务边界：</p>
+<pre><code>public interface TicketRepository extends JpaRepository&lt;Ticket, Long&gt; {
+
+    // 派生查询：方法名即查询条件
+    List&lt;Ticket&gt; findByStatusOrderByCreatedAtDesc(TicketStatus status);
+
+    // EntityGraph 一次性取出关联的提交人，避免 N+1
+    @EntityGraph(attributePaths = "creator")
+    List&lt;Ticket&gt; findTop20ByStatus(TicketStatus status);
+}
+
+@Service
+public class TicketService {
+    private final TicketRepository repository;
+
+    public TicketService(TicketRepository repository) {
+        this.repository = repository;
+    }
+
+    @Transactional
+    public Ticket close(long id, String operator) {
+        Ticket ticket = repository.findById(id)
+                .orElseThrow(() -&gt; new IllegalArgumentException("工单不存在"));
+        ticket.setStatus(TicketStatus.CLOSED);   // 脏检查自动更新，无需显式 save
+        return ticket;
+    }
+}
+</code></pre>
+    <div class="tip">💡 提示：开启 <strong>spring.jpa.show-sql=true</strong> 与 Hibernate 的 SQL 格式化输出（或用 P6Spy），写完查询先看真实 SQL 再提交；N+1 一旦上线才发现，慢查询会随数据量放大。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：搭建 Spring Boot + MyBatis + H2/MySQL 环境，实现工单的条件分页查询与带主键回填的插入，验证 SQL 与结果。</li>
+      <li><strong>任务 2</strong>：故意把 LIKE 写成 ${keyword} 模拟一次 SQL 注入（如传入 ' OR '1'='1），再改回 #{} 并解释差异。</li>
+      <li><strong>任务 3</strong>：用 JPA 实现实体与 Repository，构造 20 条数据复现 N+1（观察 SQL 条数），再用 @EntityGraph 优化并对比。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：在一个事务内完成"更新工单 + 写操作日志"两步，故意抛出异常验证回滚，并指出自调用导致 @Transactional 失效的原因。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://mybatis.org" target="_blank">MyBatis 官网</a> — <span class="desc">官方文档入口，入门指南与 Mapper XML 参考写得最清楚。</span></li>
+      <li>📖 <a href="https://mybatis.org/mybatis-3/zh/index.html" target="_blank">MyBatis 3 中文文档</a> — <span class="desc">中文版完整参考，重点看 XML 配置、动态 SQL 与映射器。</span></li>
+      <li>📖 <a href="https://spring.io/projects/spring-data-jpa" target="_blank">Spring Data JPA 官网</a> — <span class="desc">Repository 抽象与查询派生机制的官方说明。</span></li>
+      <li>📖 <a href="https://docs.spring.io/spring-data/jpa/reference/" target="_blank">Spring Data JPA 参考文档</a> — <span class="desc">查询方法派生、@Query、分页与审计的权威章节。</span></li>
+      <li>📖 <a href="https://hibernate.org/orm/documentation/" target="_blank">Hibernate ORM 文档</a> — <span class="desc">JPA 底层实现的文档，深入懒加载、脏检查与缓存时查阅。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能一句话说清 MyBatis 与 JPA 的定位差异与选型依据吗？</li>
+      <li>我能解释 #{} 与 ${} 的原理差异，并指出 ${} 仅限哪些场景吗？</li>
+      <li>我能识别 N+1 查询并用 @EntityGraph 或 fetch join 修复吗？</li>
+      <li>我的 @Transactional 边界是否放在 Service 上，且知道它何时会失效？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m1-3.html">← 上一节：SpringMVC 与 RESTful 开发</a>
+    <a href="s3-m1-5.html">下一节：SpringBoot 自动配置与 Starter →</a>
+  </div>
+
+</div>
+</body>
+</html>

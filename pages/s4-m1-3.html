@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API 网关（Gateway）与负载均衡 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块一 · 微服务架构 / <strong>API 网关（Gateway）与负载均衡</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>API 网关（Gateway）与负载均衡</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块一 · 微服务架构</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说清网关承担的<strong>六项职责</strong>（统一入口、路由、鉴权、限流、灰度、审计），并区分网关与普通反向代理。</li>
+      <li>能够用<strong>断言（Predicate）+ 过滤器（Filter）</strong>写出 Spring Cloud Gateway 路由规则，解释路由匹配顺序。</li>
+      <li>能够配置客户端负载均衡策略与超时重试，说明为何"重试叠加"会放大故障。</li>
+      <li>能够给网关加上令牌校验与全链路 traceId 透传，并完成一次灰度发布实验。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：为什么必须有网关</h3>
+    <p>没有网关时，前端要维护 N 个服务地址，鉴权、限流、日志要在每个服务里重复实现，还无法统一做灰度与审计。<strong>API 网关</strong>是所有流量的<strong>唯一入口</strong>：外部请求先到网关，由它完成<strong>路由转发</strong>（按路径/主机头把 /api/order/** 转给 order-service）、<strong>统一鉴权</strong>（校验 JWT 后把用户信息注入请求头）、<strong>限流熔断</strong>（按接口或租户限流）、<strong>灰度分流</strong>（按 header/用户把 5% 流量导到新版本）、<strong>日志与审计</strong>（统一打印 traceId、耗时、响应码）。它与 Nginx 反向代理的区别在于：反向代理主要按域名/路径做四层七层转发，网关则是<strong>业务感知</strong>的——断言能读 Cookie、Header、参数，过滤器能改写请求与执行业务逻辑，且路由表可动态对接注册中心。代价是网关成了<strong>关键单点</strong>：必须集群部署、配置要跟上服务变更、并控制它自身的耗时预算（通常 &lt; 10ms）。</p>
+
+    <h3>知识点 2：Spring Cloud Gateway 的三件套</h3>
+    <p>Spring Cloud Gateway 基于 <strong>WebFlux 响应式</strong>构建，路由定义由三部分组成：<strong>路由 ID</strong>、<strong>断言集合</strong>（匹配条件，任一命中即匹配：Path、Method、Header、Query、Cookie、After/Before 时间窗、Weight 权重）、<strong>过滤器链与目标地址</strong>（lb://服务名 表示交给负载均衡器解析）。多条路由按 <strong>order 从小到大</strong>依次尝试，因此带通配的兜底路由（如 <code>Path=/**</code>）必须排在最后，否则会把精确路由全部吃掉。常用内置过滤器：<code>StripPrefix</code>（去掉前缀）、<code>AddRequestHeader</code>（注入标识）、<code>RewritePath</code>（正则重写路径）、<code>RequestRateLimiter</code>（基于 Redis 的限流）、<code>CircuitBreaker</code>（接 Sentinel/Resilience4j 熔断降级）。常见坑：前端带 /api 前缀而服务没有——用 StripPrefix 统一裁剪；转发时丢失客户端真实 IP——用 <code>AddRequestHeader=X-Forwarded-For</code> 或 Forwarded 头过滤器补上。</p>
+
+    <h3>知识点 3：客户端负载均衡的正确配置</h3>
+    <p>Spring Cloud 用的是<strong>客户端负载均衡</strong>（Spring Cloud LoadBalancer）：调用方从注册中心拿到实例列表后，在本地按策略选择——默认<strong>轮询</strong>，可配置<strong>随机</strong>、<strong>权重</strong>（按实例流量比例，适合灰度）、<strong>一致性哈希</strong>（同用户落同实例，适合有本地缓存的场景）。配置时三个参数最影响稳定性：<strong>连接超时</strong>、<strong>读超时</strong>、<strong>重试次数</strong>。务必记住放大效应——网关重试 2 次 × 客户端重试 2 次 = 最坏 4 倍请求量，<strong>故障时重试会把雪崩从一个服务扩散到全链路</strong>，所以重试只对幂等 GET 开启、次数 ≤ 2，并配合熔断（下一节的 Sentinel）快速失败。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：网关的路由配置（<code>application.yml</code>）。注意<strong>精确路由在前、通配兜底在后</strong>，并演示 StripPrefix、超时与灰度权重：</p>
+<pre><code>server:
+  port: 8080
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+    gateway:
+      httpclient:
+        connect-timeout: 2000             # 网关→下游连接超时（毫秒）
+        response-timeout: 5s              # 响应超时，防止下游慢请求拖死网关
+      routes:
+        - id: order-route
+          uri: lb://order-service           # 走注册中心 + 客户端负载均衡
+          predicates:
+            - Path=/api/order/**            # 只匹配订单路径
+            - Method=GET,POST
+          filters:
+            - StripPrefix=1                 # /api/order/list -> /order/list
+            - AddRequestHeader=X-Gateway, edge-gateway
+            - name: CircuitBreaker          # 熔断降级（接 Sentinel，见下一节）
+              args:
+                name: orderCB
+                fallbackUri: forward:/fallback/order
+
+        - id: gray-route
+          uri: lb://order-service
+          predicates:
+            - Path=/api/order/**
+            - Header=X-Gray-Tag, canary     # 带灰度标头的请求定向到新版本
+          filters:
+            - StripPrefix=1
+
+        - id: default-fallback              # 兜底路由必须 order 最大
+          uri: lb://order-service
+          predicates:
+            - Path=/**
+          order: 100
+      default-filters:
+        - AddResponseHeader=X-Response-From, gw
+    loadbalancer:                          # 客户端负载均衡重试：次数宁小勿大
+      retry:
+        enabled: true
+        max-retries-on-next-service: 1     # 换下一个实例重试 1 次
+        max-retries-on-same-service: 0     # 同一实例不重复打
+        retry-on-all-exceptions: false     # 业务异常不要重试，否则放大故障</code></pre>
+    <p>示例二：全局过滤器——统一校验令牌、透传用户身份与 traceId（缺失直接拒绝，不让无效流量进入内网）：</p>
+<pre><code>@Component
+public class AuthGlobalFilter implements GlobalFilter, Ordered {
+
+    private static final Set&lt;String&gt; WHITE = Set.of("/api/auth/login", "/fallback");
+
+    @Override
+    public Mono&lt;Void&gt; filter(ServerWebExchange ex, GatewayFilterChain chain) {
+        String path = ex.getRequest().getURI().getPath();
+        if (WHITE.contains(path)) {
+            return chain.filter(ex);          // 白名单直接放行
+        }
+
+        String token = ex.getRequest().getHeaders().getFirst("Authorization");
+        if (token == null || !verify(token)) { // 真实项目里校验 JWT 签名与过期时间
+            ServerHttpResponse resp = ex.getResponse();
+            resp.setStatusCode(HttpStatus.UNAUTHORIZED);
+            resp.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+            String body = "{\"code\":401,\"msg\":\"invalid or missing token\"}";
+            DataBuffer buf = resp.bufferFactory().wrap(body.getBytes(StandardCharsets.UTF_8));
+            return resp.writeWith(Mono.just(buf));
+        }
+
+        // 把用户身份与链路追踪 ID 传给下游服务
+        String traceId = MDC.get("traceId") != null ? MDC.get("traceId")
+                                                    : UUID.randomUUID().toString().replace("-", "");
+        ServerHttpRequest req = ex.getRequest().mutate()
+                .header("X-User-Id", parseUserId(token))
+                .header("X-Trace-Id", traceId)
+                .build();
+        return chain.filter(ex.mutate().request(req).build());
+    }
+
+    @Override
+    public int getOrder() { return -100; }     // 数值越小越先执行
+}</code></pre>
+    <div class="tip">💡 验证路由是否命中的最快办法：在响应头看 <code>X-Response-From</code>，用 <code>curl -H "X-Gray-Tag: canary"</code> 打同一路径观察落点差异；上线前务必压测网关自身吞吐，它是全链路的天花板。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：新建 gateway-service（WebFlux）接入 Nacos，配置两条路由把 /api/order/** 与 /api/pay/** 转发到对应服务，用 curl 验证 StripPrefix 后服务端收到的路径正确。</li>
+      <li><strong>任务 2</strong>：实现示例二的鉴权过滤器：无 Token 返回 401 JSON，合法 Token 透传 X-User-Id 与 X-Trace-Id；在下游服务打印请求头确认透传成功。</li>
+      <li><strong>任务 3</strong>：起 2 个 order-service 实例（不同端口注册同服务名），把其中 1 个改慢 3 秒，观察轮询下的超时表现；随后调整超时/重试参数，记录故障请求量的变化。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：用 Weight 断言或灰度标头把 10% 流量导到 v2 版本接口，验证比例符合预期，并设计一条回滚步骤（摘掉新实例即可恢复）。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://spring.io/projects/spring-cloud-gateway" target="_blank">Spring Cloud Gateway 项目页</a> — <span class="desc">官方入口，含快速开始与参考文档链接，断言/过滤器清单以它为准。</span></li>
+      <li>📖 <a href="https://spring.io/projects/spring-cloud" target="_blank">Spring Cloud 项目页</a> — <span class="desc">理解网关在整个 Spring Cloud 体系中的位置与当前版本说明。</span></li>
+      <li>📖 <a href="https://spring.io/projects/spring-cloud-loadbalancer" target="_blank">Spring Cloud LoadBalancer 项目页</a> — <span class="desc">客户端负载均衡的官方文档入口，含轮询/随机/权重策略配置。</span></li>
+      <li>📖 <a href="https://nginx.org/" target="_blank">NGINX 官网</a> — <span class="desc">对照学习反向代理与 API 网关的职责差异，理解"静态转发 vs 业务感知路由"。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能列出网关的六项职责，并说出哪些不该放进网关（如重业务逻辑）吗？</li>
+      <li>我能解释多条路由的匹配顺序，并避免兜底路由吞掉精确路由吗？</li>
+      <li>我的网关链路里，鉴权、traceId 透传、超时、重试各在哪里生效？</li>
+      <li>我能算出一次故障下全链路被放大的请求倍数，并给出抑制手段吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m1-2.html">← 上一节：注册中心与配置中心（Nacos）</a>
+    <a href="s4-m1-4.html">下一节：服务调用（OpenFeign）与熔断降级（Sentinel） →</a>
+  </div>
+
+</div>
+</body>
+</html>

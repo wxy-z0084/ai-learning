@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 生成代码的审查与调整 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块四 · Vibe Coding / <strong>AI 生成代码的审查与调整</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>AI 生成代码的审查与调整</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块四 · Vibe Coding</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说出 AI 生成代码的<strong>五类高发问题</strong>（幻觉 API、边界缺失、安全漏洞、风格漂移、过度设计）。</li>
+      <li>能够按<strong>先跑通、再正确、后优雅</strong>的顺序审查和调整生成代码。</li>
+      <li>能够借助测试、linter、类型检查与静态扫描工具建立<strong>自动化护栏</strong>。</li>
+      <li>能够把审查中发现的问题<strong>反馈给 AI</strong>，形成一次改到位的修正循环。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：AI 代码的典型问题图谱</h3>
+    <p>第一类是<strong>幻觉 API</strong>：调用了不存在的库函数、给现有函数编造参数，尤其常见于冷门库和刚发布的新版本。第二类是<strong>边界与异常缺失</strong>：只写了快乐路径，空列表、超长输入、网络超时统统没管。第三类是<strong>安全问题</strong>：SQL 拼接、命令注入、把用户输入直接放进日志或渲染。第四类是<strong>风格漂移</strong>：同一项目里出现两种命名法、重复造轮子而不复用你已有的工具函数。第五类是<strong>过度设计</strong>：为一个简单需求引入抽象工厂和三层继承。</p>
+    <p>审查顺序有讲究：先让它<strong>能运行</strong>（编译通过、依赖正确），再验证<strong>是否正确</strong>（逻辑、边界、安全），最后才谈<strong>是否优雅</strong>（命名、结构、复用）。一上来纠结命名，容易在逻辑还有洞时就"看起来完成"了。</p>
+
+    <h3>知识点 2：把审查交给机器一部分</h3>
+    <p>人工审查贵且不可重复，能自动化的就自动化：用<strong>类型检查</strong>（mypy、tsc）抓住接口对不齐，用 <strong>linter</strong>（ruff、eslint）统一风格并排除低级错误，用<strong>测试</strong>验证行为，用<strong>依赖检查</strong>确认引入的包真实存在且版本兼容。实践上可以在规则文件里写明"任何生成的函数都必须带测试"，让 AI 自己把护栏补上。对于涉及权限、支付、数据删除的代码，必须<strong>人工逐行审</strong>，工具只是辅助。</p>
+
+    <h3>知识点 3：如何高效地"退回重改"</h3>
+    <p>发现问题后，反馈质量决定修复质量。最差的反馈是"不对，改一下"；好的反馈包含三要素：<strong>现象</strong>（运行报错的完整堆栈）、<strong>原因判断</strong>（我认为是分页参数没做偏移校验）、<strong>明确期望</strong>（请修复并补一个越界页码的测试用例）。一次把要求说全，胜过三轮"还有问题"。另外，当一次修改引入了新问题，与其继续在原会话里缝补，不如<strong>回滚到上一个可用版本</strong>，重新给出干净指令——版本控制是你最大的底气，每个可运行的节点都值得提交。</p>
+    <div class="tip">💡 审查时多问一句："这段代码在凌晨三点挂掉时，日志能告诉我是谁干的吗？"——AI 默认不会主动加好日志与错误上下文，这往往是你最该补的地方。</div>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一是 AI 常生成的<strong>带隐患代码</strong>，我们一起挑毛病：</p>
+<pre><code>def get_orders(user_id, page):
+    sql = f"SELECT * FROM orders WHERE user_id = {user_id} LIMIT 10 OFFSET {page*10}"
+    return db.execute(sql).fetchall()
+</code></pre>
+    <p>问题至少三处：字符串拼接 SQL 有<strong>注入风险</strong>；<code>page</code> 未校验类型，传字符串直接抛错或被利用；<code>SELECT *</code> 取全部字段，易泄露敏感列。改进版如下：</p>
+<pre><code>import logging
+from typing import Sequence
+
+logger = logging.getLogger(__name__)
+
+async def get_orders(user_id: int, page: int = 1, size: int = 10) -> Sequence:
+    """分页查询订单，page 从 1 开始，非法入参统一按 1 处理。"""
+    if not isinstance(user_id, int) or user_id &lt;= 0:
+        raise ValueError(f"invalid user_id: {user_id!r}")
+    page = max(1, int(page))
+    size = min(max(1, int(size)), 100)
+    rows = await db.execute(
+        "SELECT id, amount, status, created_at FROM orders "
+        "WHERE user_id = :uid ORDER BY id DESC LIMIT :size OFFSET :offset",
+        {"uid": user_id, "size": size, "offset": (page - 1) * size},
+    )
+    logger.info("get_orders user=%s page=%s rows=%s", user_id, page, len(rows))
+    return rows
+</code></pre>
+    <p>示例二是发现问题后发给 AI 的<strong>反馈模板</strong>，可直接套用：</p>
+<pre><code>你上一版生成的 get_orders 有三个问题：
+1. 使用 f-string 拼接 SQL，存在注入风险，请改为参数化查询；
+2. page/size 未做类型与范围校验，page=0 或字符串会出错；
+3. SELECT * 会带出敏感字段，请只查 id, amount, status, created_at。
+
+请基于以上三点修改，并新增 pytest 用例覆盖：
+page=0、page 为字符串、size=999 三种情况。改完运行 pytest 并贴出结果。
+</code></pre>
+    <div class="tip">💡 提示：把"改完运行 pytest 并贴出结果"写进指令，AI 就会自己验证，你能省下一轮人工复现的时间。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：让 AI 生成一个"文件上传"接口，用五类问题图谱逐项检查，把发现的问题列成清单。</li>
+      <li><strong>任务 2</strong>：为项目配置 ruff（或 eslint）与 mypy（或 tsc），对生成代码跑一遍，记录自动发现问题的数量。</li>
+      <li><strong>任务 3</strong>：使用上面的反馈模板，把任务 1 的问题一次性退回给 AI，要求其修复并补测试，统计一轮通过率。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：找一段涉及权限校验的生成代码，人工逐行审查并写出你补充的安全检查点清单。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://docs.astral.sh/ruff/" target="_blank">Ruff 官方文档</a> — <span class="desc">Python 快速 linter/format 工具，五分钟接入项目。</span></li>
+      <li>📖 <a href="https://mypy-lang.org" target="_blank">mypy 官方文档</a> — <span class="desc">静态类型检查，抓住 AI 代码的接口不一致问题。</span></li>
+      <li>📖 <a href="https://docs.pytest.org" target="_blank">pytest 官方文档</a> — <span class="desc">为生成代码补测试的标准工具，重点看 fixture 与参数化。</span></li>
+      <li>📖 <a href="https://owasp.org/www-project-top-ten/" target="_blank">OWASP Top 10</a> — <span class="desc">十大 Web 安全风险清单，人工审查安全问题时的对照表。</span></li>
+      <li>📖 <a href="https://docs.cursor.com" target="_blank">Cursor 官方文档</a> — <span class="desc">了解如何让工具在生成后自动运行检查命令。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能不看资料说出 AI 代码的五类高发问题吗？</li>
+      <li>我的项目里是否已接入 linter、类型检查与测试三道自动护栏？</li>
+      <li>退回修改时，我是否能一次给出现象、原因判断与明确期望？</li>
+      <li>对高风险代码（权限/支付/删除），我是否坚持人工逐行审查？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m4-2.html">← 上一节：上下文与需求描述技巧</a>
+    <a href="s1-m4-4.html">下一节：自然语言驱动的快速迭代开发 →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识库（文档/表格）配置 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块一 · Coze 平台使用 / <strong>知识库（文档/表格）配置</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>知识库（文档/表格）配置</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块一 · Coze 平台使用</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够解释 RAG（检索增强生成）的基本流程，并说明知识库在扣子中的作用。</li>
+      <li>能够创建文档型与表格型知识库，完成上传、分段与索引方式配置。</li>
+      <li>能够理解并调整<strong>召回设置</strong>（Top N、相似度阈值）以平衡答案完整性与干扰。</li>
+      <li>能够诊断「知识库没被用上」的常见原因，并用引用溯源验证效果。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：RAG 流程与知识库的定位</h3>
+    <p>知识库实现的是 <strong>RAG（Retrieval-Augmented Generation，检索增强生成）</strong>：用户提问 → 把问题向量化 → 在知识库里按<strong>相似度</strong>召回最相关的若干<strong>分段（Chunk）</strong> → 把这些分段连同问题一起塞给大模型 → 模型基于材料作答。这样做的价值是：知识<strong>不用重训模型、可随时更新、可溯源</strong>，正好解决大模型「不知道你的私有信息」和「一本正经编造数字」两大问题。</p>
+    <p>扣子支持三类知识库：<strong>文档型</strong>（Word/PDF/TXT/Markdown，适合制度、手册）、<strong>表格型</strong>（Excel/CSV，适合「问题-答案」「商品-参数」这类结构化条目）、<strong>笔记型/在线数据</strong>（Notion 等在线协作文档同步）。选择标准：内容是连贯文章就用文档型，是独立条目就用表格型——表格型每行自带元数据，检索精度通常更高。</p>
+
+    <h3>知识点 2：分段（Chunk）策略与索引方式</h3>
+    <p><strong>分段</strong>是检索的最小单位。默认按标题/段落自动切分，也可以开启「自定义」手动指定分段长度与重叠。经验参数：中文文档每段 <strong>300~800 字</strong>，段间保留 10%~20% 重叠防止语义被拦腰截断。切太碎→召回内容不完整、上下文断裂；切太大→单段塞满上下文窗口且稀释相关性。表格型知识库还要配置<strong>列映射</strong>：指定哪一列用于匹配（如「问题」列）、哪一列作为返回内容（如「答案」列）。</p>
+    <p><strong>索引方式</strong>决定检索算法：<strong>向量索引</strong>靠语义相似度，适合自然语言问答（默认推荐）；<strong>全文索引</strong>靠关键词精确匹配，适合专有名词、型号、编号；<strong>混合索引</strong>两者兼顾，对「既有大段描述又有一堆产品型号」的知识库效果最好。选错索引是检索差的第一大原因：全是型号的库用向量索引，经常召回相似但错误的型号。</p>
+
+    <h3>知识点 3：召回设置与接入 Bot</h3>
+    <p>知识库配置页的<strong>召回设置</strong>有两个关键参数：<strong>最大召回数 Top N</strong>（默认常为 3~5，即最多取回几段）与<strong>相似度阈值</strong>（低于该分数的段直接丢弃）。调参口诀：<em>答案缺信息 → 提高 Top N 或降低阈值；答案开始答非所问/被无关内容干扰 → 降低 Top N 或提高阈值</em>。配置好后在 Bot 编排页「知识库」区勾选引用，调试区会显示<strong>命中的分段与来源文件</strong>——这是验证知识库是否生效的唯一可靠依据，不要凭回答内容猜。</p>
+    <p>常见坑：把过期文档混进知识库（新旧版本打架）；一个库里塞多个不相关主题（检索互相干扰）；上传扫描版 PDF 没有文字层导致解析为空。对策是<strong>一个主题一个库、定期下架旧版本、上传后检查解析出的分段是否正常</strong>。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：表格型知识库的 CSV 源文件。第一列用于语义匹配，第二列作为标准答案，上传后把「问题」列设为匹配列、「答案」列设为返回列：</p>
+<pre><code>问题,答案
+年假有多少天,入职满 1 年享有 5 天年假，满 10 年享有 10 天，满 20 年享有 15 天。
+报销最晚什么时候提交,当月费用需在次月 10 日前提交报销单，逾期需附情况说明并由部门负责人特批。
+发票丢了怎么办,增值税普通发票丢失可凭支付凭证与情况说明报销；专用发票丢失需先做登报挂失并联系财务。
+试用期有年假吗,试用期累计工作满 1 年的员工，按入职日期折算享受当年度年假。
+</code></pre>
+    <p>示例二：一份自定义分段的 Markdown 素材（勾选「自定义分段」后，用 <code>---</code> 或二级标题作为分段边界）。每个 <code>##</code> 小节独立成段，保证一段只讲一件事：</p>
+<pre><code>## 差旅住宿标准（2024 版）
+一线城市每晚不超过 600 元，二线城市不超过 450 元，其他城市不超过 350 元。
+超标部分原则上自理，项目紧急情况需事先邮件审批。
+
+## 差旅交通标准
+市内交通据实报销；城际交通优先高铁二等座，飞行时长超 4 小时可选经济舱机票。
+</code></pre>
+    <p>配置要点：解析器选择「通用」即可处理带标题的 Markdown；分段长度设 500、重叠 50；索引方式选<strong>混合</strong>（正文要语义理解，「一线城市」「600 元」这类关键词也要精确命中）。接入 Bot 后问「去深圳出差住酒店一晚最多报多少」，在调试区确认命中了「差旅住宿标准」那一段。</p>
+    <div class="tip">💡 提示：每次更新知识库内容后，扣子会重新解析和索引，索引未完成期间检索可能不稳定；改动后等索引状态变为「可用」再做效果验收，避免误判为「知识库失效」。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：上传一份 3 页以上的 PDF 或 Markdown 到文档型知识库，观察自动分段结果，找出分段过长或被切断的段落，改用自定义分段修正其中 3 段。</li>
+      <li><strong>任务 2</strong>：照示例做一个 8 条以上问答对的表格型知识库，正确配置匹配列与返回列，并接入上一节的 Bot。</li>
+      <li><strong>任务 3</strong>：在调试区连测 5 个问题（3 个库内有答案、2 个库内没有），确认有答案的能引用溯源、没答案的不会硬编（会按人设说「建议咨询」）。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：分别用「向量」「全文」「混合」三种索引跑同一批测试问题，记录命中差异，写一段选型结论。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://www.coze.cn/docs" target="_blank">扣子官方文档 · 知识库</a> — <span class="desc">分段、索引、召回参数的官方解释与推荐配置。</span></li>
+      <li>📖 <a href="https://www.pinecone.io/learn/retrieval-augmented-generation/" target="_blank">Pinecone：RAG 入门教程</a> — <span class="desc">用图文讲清 RAG 全流程，理解扣子知识库背后原理的好材料。</span></li>
+      <li>📖 <a href="https://www.coze.cn/open" target="_blank">扣子开放平台</a> — <span class="desc">需要程序化管理知识库（批量上传、更新文档）时的 API 文档。</span></li>
+      <li>📖 <a href="https://www.coze.cn/store" target="_blank">扣子商店</a> — <span class="desc">找几个挂了知识库的问答类 Bot 提问测试，观察引用溯源的表现。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能画出 RAG 的完整流程（提问→向量化→召回→拼进提示词→生成）吗？</li>
+      <li>我能说出文档型和表格型知识库分别适合什么内容吗？</li>
+      <li>当答案缺信息或答非所问，我知道先调 Top N 还是先调相似度阈值吗？</li>
+      <li>我养成在调试区看「命中分段」来验证检索效果的习惯了吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m1-3.html">← 上一节：插件调用与工作流编排</a>
+    <a href="s1-m1-5.html">下一节：变量、记忆与数据库功能 →</a>
+  </div>
+
+</div>
+</body>
+</html>

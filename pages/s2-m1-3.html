@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>包管理与工程化项目结构 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块一 · Python 全栈 / <strong>包管理与工程化项目结构</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>包管理与工程化项目结构</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块一 · Python 全栈</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够创建并管理<strong>虚拟环境</strong>，解释为什么不把包装进系统 Python。</li>
+      <li>能够读懂并编写 <strong>pyproject.toml</strong>，声明项目元信息、依赖与可选依赖组，实现依赖可复现安装。</li>
+      <li>能够搭建一个<strong>src 布局</strong>的标准项目骨架，说清包目录、入口、配置与测试各放哪里。</li>
+      <li>能够使用 ruff、mypy 等工具把代码风格与类型检查纳入日常开发流程。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：虚拟环境与依赖声明</h3>
+    <p><strong>虚拟环境（venv）</strong>是项目专属的 Python 解释器 + 独立 site-packages 目录，让 A 项目要 numpy 1.24、B 项目要 numpy 2.0 互不干扰，也避免 <strong>pip install</strong> 污染系统环境（很多 Linux/macOS 上系统 Python 受保护，直接装还会报错）。标准做法：<strong>python -m venv .venv</strong> 创建，激活后所有安装都落在项目内；忘记激活是新手最常见的坑，表现为「明明装了却 import 不到」。</p>
+    <p>依赖声明有两级：<strong>直接依赖</strong>（你 import 的库）写进 pyproject 的 project.dependencies；<strong>精确锁定</strong>则由 uv.lock / poetry.lock 或 <strong>pip freeze &gt; requirements.txt</strong> 记录全部传递依赖的版本，团队与部署环境必须按锁文件安装，否则「我本地能跑」。开发期工具（pytest、ruff、mypy）放在 <strong>可选依赖组</strong>（[project.optional-dependencies] dev 或 [dependency-groups]），避免污染运行时依赖。</p>
+
+    <h3>知识点 2：pyproject.toml 与现代打包</h3>
+    <p><strong>pyproject.toml</strong>（PEP 518/621）是 Python 项目的统一配置文件，取代了 setup.py、setup.cfg、requirements.txt 三足鼎立的局面，包含 [project]（名称、版本、依赖）、[build-system]（构建后端）、[tool.*]（ruff、mypy 等工具配置）。当前主流工具推荐 <strong>uv</strong>（Astral 出品，速度极快，一条 uv sync 完成建环境+装依赖）或 <strong>Poetry</strong>（生态成熟，lock 机制完善）；两者都以 pyproject.toml 为唯一事实来源。</p>
+    <p>可复现安装的三种姿势：uv sync（读 uv.lock）、poetry install（读 poetry.lock）、pip install -r requirements.txt。而 <strong>pip install -e .</strong>（可编辑安装）让你改包内源码立即生效、无需重装，是本地开发包项目的必备技巧。</p>
+
+    <h3>知识点 3：工程化项目结构（src 布局）</h3>
+    <p>推荐 <strong>src 布局</strong>：包代码放 src/包名/ 下，测试用「安装后的包」而非直接 import 当前目录，能提前暴露漏声明依赖的问题。一个 AI 服务项目的典型结构：<strong>src/myapp/{api,core,services,models,utils}.py</strong> 放业务代码；<strong>tests/</strong> 按 test_*.py 组织；<strong>configs/ 或 .env</strong> 放配置（密钥用环境变量，严禁提交仓库）；<strong>scripts/</strong> 放一次性脚本；根目录放 pyproject.toml、README.md、.gitignore、Dockerfile。核心原则：<strong>业务逻辑与入口分离</strong>——app/ 只写可复用的函数与类，main.py / uvicorn 启动命令只做装配。</p>
+
+    <h3>知识点 4：静态质量门禁</h3>
+    <p>工程化的三件套：<strong>ruff</strong> 替代 flake8+isort+pyupgrade，一条命令完成 lint 与格式化（ruff check --fix / ruff format）；<strong>mypy</strong> 做静态类型检查，在运行前抓出类型错误；<strong>pre-commit</strong> 把它们挂在 git commit 上，不合格代码进不了仓库。三者配置全部写进 pyproject.toml 的 [tool.*] 段，团队共享同一份规则。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>一个可直接使用的 pyproject.toml（含依赖、dev 组与工具配置）：</p>
+<pre><code>[project]
+name = "ai-agent-service"
+version = "0.1.0"
+description = "智能体后端服务"
+requires-python = "&gt;=3.11"
+dependencies = [
+    "fastapi&gt;=0.115",
+    "uvicorn[standard]&gt;=0.30",
+    "pydantic&gt;=2.7",
+    "httpx&gt;=0.27",
+    "sqlalchemy&gt;=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest&gt;=8.0",
+    "ruff&gt;=0.5",
+    "mypy&gt;=1.10",
+]
+
+[dependency-groups]
+lint = ["ruff&gt;=0.5"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+</code></pre>
+    <p>项目结构与初始化命令（用 uv 为例，用 Poetry/pip 只需换安装命令）：</p>
+<pre><code>ai-agent-service/
+├── pyproject.toml          # 唯一依赖与工具配置入口
+├── uv.lock                 # 精确锁定的依赖版本，提交到 git
+├── README.md
+├── .env.example            # 环境变量样例（不含真实密钥）
+├── src/
+│   └── myapp/
+│       ├── __init__.py
+│       ├── api/            # 路由层：只做参数解析与响应
+│       ├── services/       # 业务逻辑层：可单测、不依赖框架
+│       ├── models/         # 数据模型（Pydantic / ORM）
+│       └── core/           # 配置、日志、公共依赖
+├── tests/
+│   └── test_health.py
+└── main.py                 # 启动入口：uvicorn main:app
+
+# 命令序列
+uv venv                       # = python -m venv .venv
+uv sync --extra dev           # 按锁文件安装依赖 + dev 工具
+uv pip install -e .           # 可编辑安装，改源码立即生效
+ruff check --fix . &amp;&amp; ruff format .
+mypy src
+</code></pre>
+    <div class="tip">💡 提示：把 .venv、__pycache__、.env、*.lock 以外的临时文件写进 .gitignore；锁文件（uv.lock / poetry.lock / requirements.txt）一定要提交，否则团队环境必然漂移。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：新建一个项目目录，用 venv（或 uv）创建隔离环境，安装 fastapi、pydantic、ruff，验证 python -c "import fastapi" 只在该环境内成功。</li>
+      <li><strong>任务 2</strong>：按 src 布局搭建骨架，写一个可在 myapp.services 中被测试 import 的纯函数，并用 <strong>pip install -e .</strong> 让测试通过包名而非相对路径导入它。</li>
+      <li><strong>任务 3</strong>：把直接依赖与 dev 依赖分组写入 pyproject.toml，生成锁文件（uv lock 或 pip freeze），在全新目录按锁文件复现安装并确认版本一致。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：配置 ruff（line-length=100、启用 I 排序）与 mypy strict，跑通一个模块的检查；再加 pre-commit 钩子让 commit 时自动执行。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://docs.python.org/zh-cn/3/library/venv.html" target="_blank">venv 模块文档（中文）</a> — <span class="desc">虚拟环境的创建、激活与失效场景，环境问题的第一手排查依据。</span></li>
+      <li>📖 <a href="https://packaging.python.org/" target="_blank">PyPA Python 打包官方指南</a> — <span class="desc">pyproject.toml、构建后端、发布流程的权威英文资料，装包报错时必查。</span></li>
+      <li>📖 <a href="https://docs.astral.sh/uv/" target="_blank">uv 官方文档</a> — <span class="desc">当前最快的 Python 环境与依赖管理工具，含从 pip/poetry 迁移章节。</span></li>
+      <li>📖 <a href="https://docs.astral.sh/ruff/" target="_blank">ruff 官方文档</a> — <span class="desc">规则列表与 pyproject 配置示例，一行命令完成 lint 与格式化。</span></li>
+      <li>📖 <a href="https://peps.python.org/pep-0621/" target="_blank">PEP 621：pyproject 中的项目元数据</a> — <span class="desc">[project] 表每个字段的官方定义，写配置有歧义时对照它。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能解释「装了包但 import 报错」的三种常见原因（未激活环境、装错环境、拼写问题）吗？</li>
+      <li>我能独立写出一个包含依赖分组与工具配置的 pyproject.toml 吗？</li>
+      <li>我能按 src 布局把业务逻辑、路由、配置、测试分到正确目录，并说明这样分层的理由吗？</li>
+      <li>我知道锁文件该不该提交、.env 该不该提交，并能配置好 .gitignore 吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m1-2.html">← 上一节：异步编程（asyncio）与并发处理</a>
+    <a href="s2-m1-4.html">下一节：前端基础（HTML/CSS/JS、Streamlit） →</a>
+  </div>
+
+</div>
+</body>
+</html>

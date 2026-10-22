@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多智能体冲突处理与结果汇总 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块三 · 多智能体开发 / <strong>多智能体冲突处理与结果汇总</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>多智能体冲突处理与结果汇总</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块三 · 多智能体开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够识别多智能体协作中的四类冲突（事实矛盾、方案分歧、格式不一致、目标对立），并为每类给出处理机制。</li>
+      <li>能够实现<strong>裁判/评审 Agent</strong>：用统一评分标准对多个候选结果打分、合并与择优。</li>
+      <li>能够设计<strong>结果汇总的结构化模板</strong>（含溯源引用、置信度、分歧标注），产出可交付报告。</li>
+      <li>能够搭建<strong>验证回环</strong>：用测试/校验 Agent 检查最终产出，不合格自动打回重做。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：冲突从哪来、分哪几类</h3>
+    <p>冲突不是异常，而是多智能体的<strong>常态副产品</strong>——正因为角色立场不同才会产出多样方案，关键是给冲突建处理通道。四类常见冲突：<strong>事实矛盾</strong>（研究员 A 说 Kafka 吞吐百万级，研究员 B 说十万级——通常是引用口径不同或一方编造），处理靠"回到可验证来源"：要求每条事实附来源，由裁判核对来源优先级（官方文档 &gt; 论文 &gt; 博客），无法裁决的标为"存疑"进入人工复核。<strong>方案分歧</strong>（工程师主张方案甲，架构师主张方案乙），这是<strong>有价值的冲突</strong>，处理靠结构化评审：让双方各自列出"适用前提 + 代价 + 风险"，再由裁判按当前业务的约束权重打分，而不是和稀泥取平均。</p>
+    <p><strong>格式不一致</strong>（三个角色的输出各自为政，汇总时无法机读），处理靠接口契约：从上一节的消息 schema 延伸到"产物模板"，每个角色的 output_format 必须含相同主键，汇总器才能按 key 合并。<strong>目标对立</strong>（评审员一味求全导致方案无限膨胀，撰稿人追求精简），处理靠<strong>更高一级的总目标</strong>——把验收标准（如"报告 ≤ 800 字且覆盖 3 个竞品"）同时写进双方提示词，让裁判按总目标而非任何角色的局部目标裁决。原则：<strong>让冲突在"证据与标准"层面解决，而不是让两个 agent 互相说服对方"你再想想"</strong>——无标准的辩论往往以一方妥协或无限循环收场。</p>
+
+    <h3>知识点 2：裁判机制：投票、加权与辩论</h3>
+    <p><strong>多数投票</strong>适合"答案可枚举"的选择题（如从三个 SQL 方案选一个），实现简单但会丢掉少数派的合理顾虑——折中做法是投票后强制输出"落选方案的最强论点"备查。<strong>加权评审</strong>：裁判按维度分别打分（正确性 40% / 可维护性 30% / 成本 30%，权重来自业务），要求每个分数给出理由，比单一总分更可解释。<strong>辩论后裁决</strong>：正反方各陈述一轮，裁判总结分歧点并裁决，适合高风险决策；必须设最大轮数（通常 2 轮辩论足够，更多轮边际收益骤降）。</p>
+    <p>裁判机制的三个工程要点：第一，<strong>裁判与候选最好隔离</strong>——裁判不参与候选生成，避免"自己评自己的作品"；第二，<strong>要求引用证据</strong>——裁判的每条判定必须指向候选产物中的具体段落，杜绝"整体感觉不错"式评价；第三，<strong>允许"都不行"</strong>——裁判的合法输出必须包含 reject-all 与"需要人工介入"，否则系统会在烂方案里强行挑一个相对好的。判定结果用 JSON 输出（winner、scores、evidence、dissenting_opinions），既便于代码路由，也是审计素材。</p>
+
+    <h3>知识点 3：汇总模板与验证回环</h3>
+    <p>汇总不是"把三份文档拼起来"，而是<strong>重新组织成按读者视角的单一叙事</strong>。推荐的报告模板五段式：①结论摘要（TL;DR，三句话内给出建议）；②对比表（关键维度 × 候选方案，机读对齐格式）；③分析正文（每个结论后标注证据编号）；④<strong>分歧与风险</strong>（明确写出"评审中未达成一致的点"及双方理由——这是多智能体汇总相对单模型的最大增量价值）；⑤附录（来源清单、评审打分记录、产物溯源到各角色的 task_id）。<strong>溯源</strong>让每个结论可以追到具体角色与依据，出了问题能定位是哪一层传递失真。</p>
+    <p>最后一道防线是<strong>验证回环（Reflexion）</strong>：汇总产物交给校验 Agent 或可执行检查（代码跑测试、JSON 过 schema、数字对账），失败则把错误清单作为新任务打回对应角色重做，最多迭代 N 次后连同问题一起上报人工。<strong>自动化程度越高，"垃圾进垃圾出"的放大效应越强，验证回环就是多智能体系统的测试套件</strong>——没有它，前面所有精巧的分工都会沦为批量生产错误的流水线。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：三候选 → 裁判评分 → 择优 + 落选论点（OpenAI 兼容接口，可直接运行）：</p>
+<pre><code>import json, os, openai
+client = openai.OpenAI(base_url=os.getenv("LLM_BASE_URL"), api_key=os.getenv("LLM_API_KEY"))
+MODEL = os.getenv("LLM_MODEL", "deepseek-chat")
+
+CANDIDATES = {  # 模拟三个角色产出的候选方案（真实系统里来自任务图产物）
+  "engineer_a": {"方案": "RabbitMQ 直连", "论点": "路由灵活，团队已运维 3 年", "代价": "峰值吞吐较低"},
+  "engineer_b": {"方案": "Kafka 集群",   "论点": "高吞吐、可回溯重放",        "代价": "运维成本高"},
+  "architect":  {"方案": "云上托管 MQ",  "论点": "免运维，SLA 99.95%",        "代价": "长期费用高"},
+}
+
+JUDGE_SYS = """你是独立评审，未参与候选生成。评分维度与权重：
+正确性(40) / 可维护性(30) / 总拥有成本(30)。
+规则：1) 每个分数必须给出理由并引用候选中的原话；2) 必须输出落选方案的最强论点(dissenting)；
+3) 若都不满足基线，action 选 "reject_all"。输出 JSON：
+{"scores": {"候选名": {"总分": 0-100, "理由": "..."}}, "winner": "候选名", "dissenting": "...", "action": "accept|reject_all"}"""
+
+resp = client.chat.completions.create(model=MODEL, temperature=0, messages=[
+    {"role": "system", "content": JUDGE_SYS},
+    {"role": "user", "content": "业务约束：日消息量 500 万，团队 4 人，预算有限。\n候选："
+                                + json.dumps(CANDIDATES, ensure_ascii=False)}])
+verdict = json.loads(resp.choices[0].message.content)
+print(json.dumps(verdict, ensure_ascii=False, indent=2))</code></pre>
+    <div class="tip">💡 裁判提示词里"未参与候选生成""引用原话""允许 reject_all"三句话是防自评、防空泛、防强行挑一个的最小约束。生产环境给 temperature=0 并对 verdict 做 schema 校验；再跑两次看 winner 是否稳定，不稳定说明候选间差距小于模型噪声，应上报人工决策。</div>
+    <p>示例二：验证回环——汇总器 + 校验器 + 按错误清单打回重做：</p>
+<pre><code>def summarize_and_verify(candidates: dict, max_loops: int = 2):
+    history = dict(candidates)
+    for i in range(max_loops + 1):
+        report = generate_report(history)        # 按五段式模板汇总
+        issues = verify_report(report, history)   # 可执行检查 + 校验 Agent
+        if not issues:
+            return report, i                      # 通过：返回报告与迭代次数
+        # 打回：把错误清单定向发给对应角色（按 section 定位责任方）
+        for it in issues:
+            owner = it["owner"]
+            history[owner] = regenerate(history[owner], it["problem"])
+    raise RuntimeError(f"迭代 {max_loops} 次仍未通过，上报人工: {issues}")
+
+def verify_report(report: dict, history: dict) -> list:
+    """返回问题清单；每项含 section / owner / problem，为空表示通过"""
+    issues = []
+    if not report.get("结论摘要"):
+        issues.append({"section": "摘要", "owner": "lead", "problem": "缺少三句话结论"})
+    for claim in report.get("引用断言", []):
+        if not claim.get("evidence_id"):          # 每条结论必须能追到证据
+            issues.append({"section": claim["位置"], "owner": claim["author"],
+                           "problem": f"结论「{claim['text']}」无证据编号"})
+    if len(report.get("分歧与风险", {}).get("未决项", [])) == 0 and has_conflict(history):
+        issues.append({"section": "分歧与风险", "owner": "lead",
+                       "problem": "存在冲突候选但报告未标注任何分歧"})
+    return issues</code></pre>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：跑通示例一：先造两个"引用来源可疑"的候选，观察裁判是否裁决到官方文档一方；再让两个候选得分完全相同（人为构造），确认系统走"上报人工"而非随机挑一个。</li>
+      <li><strong>任务 2</strong>：实现加权评审：把维度权重做成可配置字典，分别用"成本优先"和"正确性优先"两组权重重跑，记录 winner 是否发生反转并解释原因。</li>
+      <li><strong>任务 3</strong>：按五段式模板做一次真实汇总：把你前面章节做过的任意一个多智能体实验的产物汇总成报告，必须包含"分歧与风险"一节，哪怕分歧为零也要写明"为何无分歧"。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：给示例二的 verify_report 增加"数字对账"检查（报告中的数字必须能在证据原文中找到），用一个故意写错数字的报告验证它能被拦截。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://microsoft.github.io/autogen/" target="_blank">AutoGen 官方文档</a> — <span class="desc">GroupChat 的 speaker 选择器与多角色轮转机制，辩论/裁决模式的现成实现参考。</span></li>
+      <li>📖 <a href="https://www.crewai.com" target="_blank">CrewAI 官网</a> — <span class="desc">hierarchical 流程中 manager agent 自动汇总任务结果的机制，与本节汇总器对应。</span></li>
+      <li>📖 <a href="https://langchain-ai.github.io/langgraph/" target="_blank">LangGraph 官方文档</a> — <span class="desc">用条件边实现"评审不通过→打回重做"的验证回环，Reflexion 模式有教程。</span></li>
+      <li>📖 <a href="https://arxiv.org/abs/2308.00352" target="_blank">MetaGPT 论文（arXiv:2308.00352）</a> — <span class="desc">"标准作业程序 + 代码评审"的多智能体协作范式，其 SOP 与 Review 机制值得借鉴。</span></li>
+      <li>📖 <a href="https://www.anthropic.com/engineering/building-effective-agents" target="_blank">Building Effective Agents</a> — <span class="desc">官方对"何时需要多智能体、如何控制复杂度"的工程经验总结，防止为汇总而汇总。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能把我的多智能体系统中可能出现的冲突分成四类，并说出各自的处理通道吗？</li>
+      <li>裁判的判定能否被质疑和审计？每条判定有证据引用吗？有没有 reject_all 出口？</li>
+      <li>我的最终报告有"分歧与风险"一节吗？读者能否顺着溯源找到每个结论的出处？</li>
+      <li>如果汇总产物里出现一个事实错误，验证回环能否拦住？拦截不住时谁来负责（人工兜底在哪）？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m3-4.html">← 上一节：共享记忆与状态管理</a>
+    <a href="s4-m4-1.html">下一节：存量系统 AI 升级需求分析与评估 →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 与 Tool（工具调用） · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块四 · LangChain / <strong>Agent 与 Tool（工具调用）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>Agent 与 Tool（工具调用）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块四 · LangChain</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够解释 Agent 与普通 Chain 的本质区别，说清 <strong>ReAct</strong>（思考-行动-观察）循环的工作过程。</li>
+      <li>能够用 <code>@tool</code> 装饰器把普通 Python 函数注册为工具，并理解函数签名、docstring 对工具选型的作用。</li>
+      <li>能够用 <code>create_tool_calling_agent + AgentExecutor</code> 组装一个可多轮调用工具的智能体并跑通。</li>
+      <li>能够为工具加上输入校验、超时控制和错误兜底，理解工具设计（单一职责、清晰命名）对成功率的影响。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：Agent = 大模型 + 工具 + 循环控制</h3>
+    <p>普通 Chain 的执行路径是固定的（提示词→模型→解析器），而 <strong>Agent 由大模型自主决定下一步做什么</strong>：面对用户问题，模型先判断"我现有知识够不够"，不够就调用某个工具、拿到观察结果（Observation），再决定继续调用工具还是给出最终回答。这个循环就是经典的 <strong>ReAct 模式（Reason + Act）</strong>。</p>
+    <p>与直接把资料塞进提示词相比，Agent 的价值在于：<strong>按需获取信息</strong>（不用一次性把所有上下文塞满）、<strong>能执行动作</strong>（查数据库、调接口、下单）、<strong>能多步推理</strong>（先查库存再算价格再给方案）。代价是延迟更高、出错环节更多，所以工具越可靠、描述越清晰，Agent 成功率越高。</p>
+
+    <h3>知识点 2：工具（Tool）的设计与注册</h3>
+    <p>LangChain 0.2 中最简单的注册方式是 <code>@tool</code> 装饰器：把一个 Python 函数变成工具，<strong>函数名会成为工具名、类型注解成为参数 schema、docstring 成为工具描述</strong>——这三者直接决定模型能否选对工具、传对参数，务必认真写。设计原则：① <strong>单一职责</strong>——一个工具只做一件事，"查询订单"和"修改订单"分开注册；② <strong>参数尽量少</strong>——超过 5 个参数模型容易传错；③ <strong>返回值友好</strong>——返回结构清晰的字符串或字典，出错时返回可读的错误信息而不是抛异常中断循环；④ <strong>有副作用的工具要幂等或加确认</strong>（如"删除"类操作）。</p>
+
+    <h3>知识点 3：AgentExecutor——循环的大脑</h3>
+    <p><code>AgentExecutor</code> 负责驱动整个循环：把用户输入和工具列表交给模型 → 模型返回"工具调用请求" → 执行对应函数 → 把结果追加回对话 → 再次询问模型，直到模型给出最终答案或达到 <strong>max_iterations</strong>（默认 15，防止死循环烧钱）、<strong>max_execution_time</strong> 超时。生产环境必调三个旋钮：<code>max_iterations</code>（防循环）、<code>return_intermediate_steps=True</code>（打印中间步骤，排查必备）、<code>handle_parsing_errors=True</code>（模型输出格式错时自动重试而不是崩溃）。</p>
+
+    <h3>知识点 4：工具调用的底层原理与安全</h3>
+    <p>底层机制：模型并不"执行"代码，而是输出一段结构化的<strong>工具调用请求</strong>（工具名 + JSON 参数），由你的进程真正执行，再把结果文本回传。因此工具描述就是"给模型看的 API 文档"。安全上注意：① 给工具的权限做到<strong>最小化</strong>——只注册业务必需的工具；② 高危操作（支付、删除、发送）加<strong>人工确认</strong>环节；③ 对模型传入的参数做<strong>服务端校验</strong>，永远不要信任模型输出；④ 记录每次工具调用的入参和结果，出问题可回放。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：注册两个工具，组装一个可多轮调用工具的 Agent：</p>
+<pre><code># pip install langchain langchain-openai
+import os
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
+from langchain.agents import create_tool_calling_agent, AgentExecutor
+
+@tool
+def search_order(order_id: str) -> str:
+    """根据订单号查询订单状态与物流信息。order_id 形如 'SO2024001'。"""
+    fake_db = {"SO2024001": "已发货，顺丰单号 SF123456789，预计明天送达"}
+    return fake_db.get(order_id, f"未找到订单 {order_id}")
+
+@tool
+def calculate_refund(order_id: str, has_coupon: bool) -> str:
+    """计算订单应退金额。has_coupon 表示该订单是否使用过优惠券，用券订单扣减 10 元。"""
+    base = 199.0
+    amount = base - 10.0 if has_coupon else base
+    return f"应退金额：{amount:.2f} 元"
+
+tools = [search_order, calculate_refund]
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "你是客服助手。需要实时信息时调用工具；信息齐全后用中文简洁回答用户。"),
+    MessagesPlaceholder("agent_scratchpad"),   # 存放工具调用与结果的中间过程
+    ("human", "{input}"),
+])
+
+model = ChatOpenAI(model="gpt-4o-mini", temperature=0, api_key=os.environ["OPENAI_API_KEY"])
+agent = create_tool_calling_agent(model, tools, prompt)
+executor = AgentExecutor(
+    agent=agent, tools=tools,
+    max_iterations=5,                 # 防死循环
+    return_intermediate_steps=True,   # 打印中间步骤，便于排查
+    handle_parsing_errors=True,       # 模型输出格式异常时自动重试
+)
+
+result = executor.invoke({"input": "订单 SO2024001 用过券，现在要退款，能退多少？现在到哪了？"})
+print(result["output"])
+for step in result["intermediate_steps"]:
+    print("调用：", step[0].tool, step[0].tool_input, "| 结果：", step[1])</code></pre>
+
+    <p>示例二：给工具加输入校验与错误兜底，避免异常中断整个 Agent 循环：</p>
+<pre><code>import re
+
+@tool
+def query_ticket_status(ticket_no: str) -> str:
+    """查询工单状态。ticket_no 必须形如 'T-10001'。"""
+    if not re.fullmatch(r"T-\d{5}", ticket_no):
+        return "参数错误：工单号格式应为 T-10001，已忽略本次查询，请向用户确认工单号。"
+    try:
+        # 真实项目在这里调用内部接口，加超时与重试
+        return call_ticket_api(ticket_no)
+    except TimeoutError:
+        return "工单系统超时，请稍后重试；不要编造状态，如实告知用户。"</code></pre>
+
+    <div class="tip">💡 提示：工具返回的错误信息其实是"给模型看的提示"。写清楚"错在哪、下一步该做什么"（如"请向用户确认工单号"），模型就能自我纠偏，Agent 的端到端成功率会显著提升。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：把上一模块写的"周报生成器"改造成带工具的 Agent：注册一个 <code>get_current_weather(city)</code> 假数据工具和一个 <code>read_file(path)</code> 工具，让 Agent 能在回答中主动调用它们。</li>
+      <li><strong>任务 2</strong>：构造一个需要<strong>连续两次</strong>工具调用才能回答的问题（如"查订单 SO2024001 的状态，然后计算退款金额"），开启 return_intermediate_steps 观察完整循环日志。</li>
+      <li><strong>任务 3</strong>：故意让工具抛异常、让模型传错参数，验证 handle_parsing_errors 与错误兜底字符串的表现，记录 Agent 的自我纠偏行为。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：为一个有副作用的工具（如"提交退款申请"）增加确认机制：参数带 <code>confirm=False</code> 时只返回预览信息，不真正执行。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://python.langchain.com/v0.2/docs/how_to/tool_calling/" target="_blank">LangChain 工具调用 How-to</a> — <span class="desc">从 @tool 定义到流式工具调用的完整指南，本节代码的官方出处。</span></li>
+      <li>📖 <a href="https://python.langchain.com/v0.2/docs/concepts/tool_calling/" target="_blank">工具调用核心概念</a> — <span class="desc">解释工具调用的底层消息协议，理解"模型只发请求、代码真执行"。</span></li>
+      <li>📖 <a href="https://python.langchain.com/v0.2/docs/modules/agents/" target="_blank">LangChain Agents 概览</a> — <span class="desc">Agent 类型、AgentExecutor 参数与旧版 Agent 迁移说明。</span></li>
+      <li>📖 <a href="https://platform.openai.com/docs/guides/function-calling" target="_blank">OpenAI Function Calling 指南</a> — <span class="desc">工具调用机制的源头文档，换任何供应商都适用的心智模型。</span></li>
+      <li>📖 <a href="https://arxiv.org/abs/2210.03629" target="_blank">ReAct 论文（arXiv）</a> — <span class="desc">思考-行动-观察范式的原始论文，理解 Agent 循环的思想来源。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能画出 ReAct 循环的流程图，并解释 agent_scratchpad 的作用吗？</li>
+      <li>我能独立完成"定义工具 → 创建 Agent → 配置 AgentExecutor → 运行"的全流程吗？</li>
+      <li>我能说出工具 docstring 和类型注解为什么直接影响调用成功率吗？</li>
+      <li>我给高危工具加了确认机制、给所有工具写了错误兜底信息吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m4-1.html">← 上一节：核心组件：Model / Prompt / Chain</a>
+    <a href="s2-m4-3.html">下一节：对话记忆（Memory）管理 →</a>
+  </div>
+
+</div>
+</body>
+</html>

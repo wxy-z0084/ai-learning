@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Python 语法进阶与常用标准库 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块一 · Python 全栈 / <strong>Python 语法进阶与常用标准库</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>Python 语法进阶与常用标准库</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块一 · Python 全栈</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够独立编写带参数的<strong>装饰器</strong>，并用 functools.wraps 正确保留原函数元信息，用于给函数加计时、重试、日志等横切逻辑。</li>
+      <li>能够读懂并写出<strong>生成器</strong>与上下文管理器，用惰性求值处理大文件、流式数据，用 with 语句安全管理资源。</li>
+      <li>能够为函数签名和数据结构补充<strong>类型标注</strong>，用 dataclass 消除冗余的 __init__ 样板代码。</li>
+      <li>能够根据场景从 collections、itertools、functools、pathlib、logging 中选择合适工具，替代手写循环与 print 调试。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：装饰器与 functools 函数式工具</h3>
+    <p><strong>装饰器</strong>本质是一个接收函数、返回函数的高阶函数，用来在不修改原函数源码的前提下叠加行为。常见坑有两个：一是返回的包装函数没有继承原函数的名称与签名，导致 help()、IDE 提示失效，解决办法是在内层函数上加 <strong>@functools.wraps(原函数)</strong>；二是需要传参数的装饰器要写成三层嵌套（外层接收装饰器参数、中层接收被装饰函数、内层是真正的包装函数）。</p>
+    <p>functools 还提供 <strong>lru_cache</strong>（给纯函数加记忆化缓存，对递归和重复调用的 API 封装提速明显）、<strong>partial</strong>（固定函数的部分参数，常用于把带额外参数的回调改成无参回调）。</p>
+
+    <h3>知识点 2：生成器、迭代器与上下文管理器</h3>
+    <p>函数体内出现 <strong>yield</strong> 即变成生成器：每次调用 next() 只执行到 yield 就暂停并交出一个值，因此读取 10 GB 日志也不会一次性占用内存。生成器表达式 <strong>(f(x) for x in data)</strong> 与列表推导的区别同理——前者惰性、后者立即求值。AI 工程中批量推理、流式读取数据集时，用生成器可以边取边算。</p>
+    <p><strong>with 语句</strong>依赖上下文管理器协议（__enter__ / __exit__）。除了自己写类，还可以用标准库 <strong>contextlib.contextmanager</strong> 把一个带 yield 的函数一键变成上下文管理器，__exit__ 部分保证异常时也能执行清理逻辑（关闭文件、释放锁、还原临时配置）。</p>
+
+    <h3>知识点 3：类型标注与 dataclass</h3>
+    <p>类型标注（<strong>def parse(text: str) -&gt; list[int]</strong>）在运行时不生效，但能让 mypy、ruff 和 IDE 在写代码时就发现类型错误，是中大型项目的必备习惯。处理结构化数据优先用 <strong>@dataclasses.dataclass</strong>：它自动生成 __init__、__repr__、__eq__，加 <strong>frozen=True</strong> 可得到不可变实例，加 <strong>field(default_factory=list)</strong> 解决可变默认值陷阱（列表/字典不能直接写成默认值）。</p>
+
+    <h3>知识点 4：常用标准库速览</h3>
+    <p><strong>collections</strong>：defaultdict 省掉 setdefault 判断、Counter 统计词频、deque 做固定长度滑动窗口。<strong>itertools</strong>：groupby 分组、chain 串联、islice 切片迭代器。<strong>pathlib.Path</strong> 用面向对象方式拼接路径、glob 匹配文件，跨平台行为一致，建议替代 os.path。<strong>logging</strong> 提供分级（DEBUG/INFO/WARNING/ERROR）、格式化与多输出目标，是替代 print 的标准做法；<strong>re</strong> 负责正则，配合 re.DOTALL 处理多行文本。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>第一个示例演示带参数的装饰器（统计函数耗时）与 dataclass 的组合使用，可直接保存为 demo1.py 运行：</p>
+<pre><code>import functools
+import time
+
+def timer(repeat: int = 1):
+    """记录函数平均耗时的装饰器：@timer(repeat=3)"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            total = 0.0
+            for _ in range(repeat):
+                start = time.perf_counter()
+                result = func(*args, **kwargs)
+                total += time.perf_counter() - start
+            print(f"{func.__name__} 平均耗时 {total / repeat:.4f}s")
+            return result
+        return wrapper
+    return decorator
+
+@timer(repeat=1000)
+def fib(n: int) -&gt; int:
+    a, b = 0, 1
+    for _ in range(n):
+        a, b = b, a + b
+    return a
+
+print(fib(30))   # 既有返回值，又打印耗时统计
+</code></pre>
+    <p>第二个示例：用生成器惰性读取大文件、用 logging 输出、用 pathlib 定位文件，三者组合是处理日志/数据文件的常用骨架：</p>
+<pre><code>import logging
+from pathlib import Path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+)
+log = logging.getLogger(__name__)
+
+def read_lines(path: Path):
+    """生成器：逐行返回，内存占用恒定"""
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            yield line.strip()
+
+def count_errors(path: Path) -&gt; int:
+    errors = sum(1 for ln in read_lines(path) if "ERROR" in ln)
+    log.info("发现 %d 条 ERROR 日志", errors)
+    return errors
+
+if __name__ == "__main__":
+    print(count_errors(Path("app.log")))
+</code></pre>
+    <div class="tip">💡 提示：装饰器里一定要用 functools.wraps；生成器只能迭代一次，需要复用时请重新调用生成器函数产生新对象。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：写一个 <strong>@retry(times=3, delay=0.5)</strong> 装饰器，让被装饰函数在抛出异常时自动重试，三次都失败则原样抛出；用一个随机失败的函数验证（提示：用 functools.wraps + try/except + time.sleep）。</li>
+      <li><strong>任务 2</strong>：用生成器实现一个 <strong>chunked(iterable, size)</strong> 函数，把一个 1 万元素的列表按每 300 个一批切出，打印每批长度，验证内存与逻辑正确。</li>
+      <li><strong>任务 3</strong>：定义一个表示「模型调用记录」的 dataclass（字段：model、prompt、tokens、created_at），用 field(default_factory=list) 保存标签列表，并用 dataclasses.asdict() 转成 JSON 可序列化字典。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：把项目中所有 print 调试语句改成 logging，配置同时输出到控制台和 debug.log 文件，并按模块名设置不同日志级别。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://docs.python.org/zh-cn/3/tutorial/index.html" target="_blank">Python 官方教程（中文）</a> — <span class="desc">第 9 章「类」、第 10 章「标准库简介」是本节的延伸阅读，建议通读一遍。</span></li>
+      <li>📖 <a href="https://docs.python.org/zh-cn/3/library/functools.html" target="_blank">functools 标准库文档</a> — <span class="desc">查阅 wraps、lru_cache、partial 的准确语义，写装饰器时的权威参考。</span></li>
+      <li>📖 <a href="https://docs.python.org/zh-cn/3/library/itertools.html" target="_blank">itertools 标准库文档</a> — <span class="desc">官方给出的常见惯用法（笛卡尔积、分组、错位配对）可直接抄来用。</span></li>
+      <li>📖 <a href="https://docs.python.org/zh-cn/3/library/dataclasses.html" target="_blank">dataclasses 文档</a> — <span class="desc">字段默认值、frozen、继承规则都写得很清楚，遇到 asdict/字段顺序问题来这里。</span></li>
+      <li>📖 <a href="https://peps.python.org/pep-0008/" target="_blank">PEP 8 代码风格指南</a> — <span class="desc">命名与格式规范，配合 ruff/pycodestyle 使用可自动检查。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能不查资料写出带参数的装饰器，并解释 functools.wraps 解决了什么问题吗？</li>
+      <li>我能在「读一个 500 MB 日志文件」的场景下，说出为什么用生成器而不是 list 吗？</li>
+      <li>我能在自己的项目里把 print 调试换成分级 logging，并为关键数据结构加上类型标注吗？</li>
+      <li>我能在 collections / itertools / functools 中为「词频统计、批量分组、缓存递归」各选对一个工具吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m5-4.html">← 上一节：智能体发布与效果验证</a>
+    <a href="s2-m1-2.html">下一节：异步编程（asyncio）与并发处理 →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Java 语法进阶与集合、多线程 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块一 · Java / SpringBoot / <strong>Java 语法进阶与集合、多线程</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>Java 语法进阶与集合、多线程</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块一 · Java / SpringBoot</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够熟练使用<strong>泛型、枚举、异常处理</strong>写出类型安全、语义清晰的 Java 代码。</li>
+      <li>能够根据场景选择 <strong>List / Set / Map</strong> 的具体实现，并说清 hashCode 与 equals 的契约。</li>
+      <li>能够使用 <strong>Thread、线程池 ExecutorService</strong> 编写并发任务，理解为何不该自己 new Thread。</li>
+      <li>能够解释共享变量并发访问的三大问题（可见性、原子性、有序性）与 synchronized、volatile 的作用。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：泛型、枚举与异常体系</h3>
+    <p><strong>泛型</strong>把类型检查提前到编译期：List&lt;String&gt; 让误放 Integer 在编译阶段就报错，避免运行时 ClassCastException；注意泛型<strong>存在类型擦除</strong>，运行时拿不到 List&lt;String&gt; 里的 String，这也是不能 new T[] 的原因。<strong>枚举</strong>不仅是常量集合，还能携带字段与方法，适合表达有限状态（如订单状态机）。<strong>异常</strong>分受检（checked，如 IOException，编译器强制 try 或 throws）与非受检（RuntimeException 及其子类）；业务异常建议自定义并携带错误码，避免用字符串匹配异常信息。原则：<strong>只捕获能处理的异常</strong>，捕获后要么恢复、要么转译，绝不用空 catch 吞掉。</p>
+
+    <h3>知识点 2：集合框架</h3>
+    <p>集合三大主力：<strong>ArrayList</strong>（数组实现，随机访问 O(1)，中间插入 O(n)）、<strong>LinkedList</strong>（链表，头尾操作快，实际很少用）、<strong>HashMap</strong>（键值查找 O(1)，最常用的 Map）、<strong>HashSet</strong>（基于 HashMap 去重）、<strong>TreeMap/TreeSet</strong>（按自然序或比较器排序）。关键契约：作为 Map 键或放入 HashSet 的自定义对象必须同时重写 <strong>hashCode 与 equals</strong>——两个相等的对象必须有相同哈希值，否则"存得进却查不出"。并发场景用 <strong>ConcurrentHashMap</strong> 而不是 Collections.synchronizedMap，读多写少时吞吐差距明显。</p>
+
+    <h3>知识点 3：多线程与线程池</h3>
+    <p>直接 <strong>new Thread</strong> 的问题：线程创建销毁开销大、数量无上限、参数无法统一管理。生产代码一律用<strong>线程池</strong>：核心线程数、最大线程数、工作队列、拒绝策略四大参数，通过 <strong>Executors</strong> 工厂方法或 <strong>ThreadPoolExecutor</strong> 显式创建（推荐后者，参数可见可控）。并发访问共享变量会带来<strong>可见性</strong>（线程 A 改了线程 B 看不到）、<strong>原子性</strong>（count++ 是读改写三步）、<strong>有序性</strong>问题，对应手段是 <strong>volatile</strong>（保证可见性与禁止指令重排，不保证复合操作原子性）、<strong>synchronized</strong>（互斥 + 可见性）与原子类（如 AtomicInteger）。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：集合与自定义对象的 hashCode/equals 契约：</p>
+<pre><code>import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+public class Employee {
+    private final String id;
+    private String name;
+
+    public Employee(String id, String name) {
+        this.id = id;
+        this.name = name;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Employee e)) return false;
+        return Objects.equals(id, e.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);   // 只用参与 equals 的字段
+    }
+
+    public static void main(String[] args) {
+        Map&lt;Employee, Double&gt; salary = new HashMap&lt;&gt;();
+        salary.put(new Employee("E001", "张三"), 15000.0);
+        // 即使是另一个对象，只要 id 相同就能查到
+        System.out.println(salary.get(new Employee("E001", "张三丰")));  // 15000.0
+    }
+}
+</code></pre>
+    <p>示例二：用线程池并发处理任务（模拟批量调用模型接口）：</p>
+<pre><code>import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+public class BatchTask {
+    public static void main(String[] args) throws InterruptedException {
+        List&lt;String&gt; questions = List.of("什么是RAG？", "什么是Agent？", "什么是微调？");
+
+        ExecutorService pool = new Executors.newFixedThreadPool(2);
+        try {
+            for (String q : questions) {
+                pool.submit(() -&gt; {
+                    System.out.println(Thread.currentThread().getName()
+                            + " 处理：" + q);
+                    return null;
+                });
+            }
+        } finally {
+            pool.shutdown();
+            pool.awaitTermination(30, TimeUnit.SECONDS);
+        }
+    }
+}
+</code></pre>
+    <div class="tip">💡 提示：IDE 中把 <strong>new FixedThreadPool(2)</strong> 这类 Executors 工厂方法标记为不推荐——它内部使用无界队列，任务堆积会耗尽内存；面试与生产中应显式写 ThreadPoolExecutor 的四个参数。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：写一个 Ticket 类放入 HashSet，先不重写 hashCode/equals 观察去重失效，再补上重写并解释原因。</li>
+      <li><strong>任务 2</strong>：用 ArrayList、HashMap、TreeMap 各实现一次"按工单号统计各状态数量"，对比代码复杂度与输出顺序差异。</li>
+      <li><strong>任务 3</strong>：用显式参数的 ThreadPoolExecutor 并发处理 100 个模拟任务，观察核心线程数、队列长度变化对完成时间的影响。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：写一个多线程对共享 count 做 10000 次自增的程序，分别用 int、volatile int、AtomicInteger、synchronized 验证结果差异。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://dev.java/learn/" target="_blank">Oracle dev.java 学习指南</a> — <span class="desc">官方出品的现代 Java（含泛型、并发）学习路径。</span></li>
+      <li>📖 <a href="https://docs.oracle.com/en/java/javase/17/docs/api/" target="_blank">Java 17 API 文档</a> — <span class="desc">查集合与并发类的权威来源，养成读 javadoc 的习惯。</span></li>
+      <li>📖 <a href="https://docs.oracle.com/javase/tutorial/collections/" target="_blank">Java 教程：Collections</a> — <span class="desc">集合框架的官方教程，接口-实现-算法三段结构讲得最清楚。</span></li>
+      <li>📖 <a href="https://docs.oracle.com/javase/tutorial/essential/concurrency/" target="_blank">Java 教程：Concurrency</a> — <span class="desc">线程、锁、同步器与线程池的官方入门材料。</span></li>
+      <li>🛠 <a href="https://github.com/iluwatar/java-design-patterns" target="_blank">java-design-patterns</a> — <span class="desc">可运行的设计模式示例库，学完语法后对照练手。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说出 ArrayList 与 LinkedList、HashMap 与 TreeMap 的取舍依据吗？</li>
+      <li>我能解释为什么重写 equals 必须同时重写 hashCode 吗？</li>
+      <li>我能默写出 ThreadPoolExecutor 的四大参数及其拒绝策略的触发条件吗？</li>
+      <li>volatile 与 synchronized 的区别，我能各举一个正确使用的场景吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m5-5.html">← 上一节：实战：企业知识库问答智能体</a>
+    <a href="s3-m1-2.html">下一节：Spring IoC 与 AOP 原理 →</a>
+  </div>
+
+</div>
+</body>
+</html>

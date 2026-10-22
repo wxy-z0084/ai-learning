@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>注册中心与配置中心（Nacos）· AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块一 · 微服务架构 / <strong>注册中心与配置中心（Nacos）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>注册中心与配置中心（Nacos）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块一 · 微服务架构</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够解释服务注册与发现的完整流程：实例上线注册、心跳续约、下线摘除、客户端拉取地址列表。</li>
+      <li>能够说清配置中心解决的四个问题（集中管理、动态刷新、多环境隔离、变更审计），并解释<strong>namespace / group / dataId</strong> 三级模型。</li>
+      <li>能够完成 Nacos 单机部署，并让两个 Spring Cloud Alibaba 服务完成注册发现与配置拉取。</li>
+      <li>能够排查注册与配置的高频故障：不注册、不刷新、namespace 配错、容器内 IP 注册错误。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：注册中心——服务地址的"通讯录"</h3>
+    <p>服务实例的 IP 与端口是动态的（扩缩容、发布换机），调用方不可能写死地址。解决办法是<strong>注册中心</strong>：实例启动时把 <code>服务名 → IP:端口</code> 注册进去，运行期间按间隔发送<strong>心跳</strong>续约，连续心跳失败则被判定不健康并<strong>摘除</strong>；调用方（如 LoadBalancer / OpenFeign）按服务名从注册中心拉取实例列表，在本地做负载均衡。Nacos 的实例分两类：<strong>临时实例</strong>（默认，走客户端心跳，心跳超时被踢出）与<strong>永久实例</strong>（由服务端主动探测，适合不宜自报心跳的中间件）。Nacos 采用 <strong>AP 为主、CP 为辅</strong>的模式：临时实例走 distro 协议保证可用性（AP），持久实例与配置数据走 Raft 强一致（CP）。常见坑：容器/Pod 内注册了内网网卡 IP 导致调用方连不上（要配 <code>spring.cloud.nacos.discovery.ip</code> 或使用 host 网络）；机器休眠导致心跳中断，本地开发时实例被误判下线。</p>
+
+    <h3>知识点 2：配置中心——一次改、处处生效</h3>
+    <p>把 <code>application.yml</code> 拆散在每个仓库里，改一个超时参数要发版十几个服务。配置中心把配置<strong>集中存储并支持运行时推送</strong>，配合<strong>多环境隔离</strong>（dev / test / prod 各一套命名空间）与<strong>变更历史回滚</strong>，是微服务治理的基础设施。Nacos 配置的定位规则是三级：<strong>namespace</strong>（隔离环境，如 dev/prod，最外层）、<strong>group</strong>（隔离业务线或应用组，如 DEFAULT_GROUP、trade）、<strong>dataId</strong>（单个配置文件，如 <code>order-service.yaml</code>）。Nacos 还会在服务启动时做<strong>共享配置导入</strong>（<code>shared-configs</code> / <code>extension-configs</code>），公共配置（Redis、日志级别）放共享文件，应用私有配置放自己的 dataId，加载优先级：应用配置 &gt; 扩展配置 &gt; 共享配置。另一个容易忽略的能力是 <strong>fail-fast 校验</strong>：配置文件不存在或格式错误时启动直接失败，配合 CI 校验能在发布前拦住手误。</p>
+
+    <h3>知识点 3：动态刷新的正确姿势</h3>
+    <p>在 Nacos 控制台改配置只是第一步，服务进程必须<strong>感知变更</strong>才能生效：Spring Cloud Alibaba 通过监听配置变更推送刷新，但刷新只对标注了 <strong><code>@RefreshScope</code></strong> 的 Bean（或配合 <code>@ConfigurationProperties</code> 绑定）生效。典型错误有三种：只加了 <code>nacos-config</code> 依赖却没写 <code>spring.config.import</code> 或 <code>shared-configs</code>，配置根本没拉下来；Bean 没加 <code>@RefreshScope</code>，<code>@Value</code> 字段值不更新；读取的 dataId 与控制台编辑的不一致（环境/profile 后缀没对上），改了却"看起来没生效"。验证手段：调用 <code>/actuator/refresh</code> 或直接观察变更日志，并在接口里回显配置值确认。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：order-service 同时接入<strong>服务注册</strong>与<strong>配置中心</strong>的 <code>application.yml</code>（Spring Cloud Alibaba 2022.x + Nacos 2.x 默认端口 8848）：</p>
+<pre><code>server:
+  port: 8081
+spring:
+  application:
+    name: order-service            # 注册到 Nacos 的服务名，调用方按它寻址
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+        namespace: dev-ns-id       # 控制台"命名空间"页面复制的 ID，不是名字！
+        group: DEFAULT_GROUP
+        ip: 192.168.1.50           # 容器内注册错 IP 时手动指定
+        weight: 1.0
+      config:
+        server-addr: 127.0.0.1:8848
+        namespace: dev-ns-id
+        group: DEFAULT_GROUP
+        file-extension: yaml        # 对应 dataId = order-service.yaml
+        shared-configs:             # 公共配置（如 common-redis.yaml）
+          - data-id: common-redis.yaml
+            group: SHARED_GROUP
+            refresh: true           # 必须为 true 才会随变更刷新
+
+# 开发环境想禁用注册/配置时：spring.cloud.nacos.discovery.enabled=false</code></pre>
+    <p>示例二：读取配置并支持<strong>动态刷新</strong>的业务 Bean——控制台把 <code>order.limit</code> 从 50 改成 100 后，无需重启即生效：</p>
+<pre><code>@RestController
+@RequestMapping("/order")
+@RefreshScope                       // 关键：缺了它 @Value 不会随配置更新
+public class OrderController {
+
+    @Value("${order.limit:10}")      // 带默认值，配置缺失也能启动
+    private int limit;
+
+    @Value("${order.timeout-ms:3000}")
+    private long timeoutMs;
+
+    @GetMapping("/limit")
+    public Map&lt;String, Object&gt; limit() {
+        // 用这个接口回显验证刷新是否生效
+        return Map.of("limit", limit, "timeoutMs", timeoutMs,
+                      "instance", "order-service");
+    }
+
+    @PostMapping
+    public String create(@RequestBody OrderDTO dto) {
+        if (dto.getCount() &gt; limit) {
+            throw new IllegalArgumentException("单次下单超过限额 " + limit);
+        }
+        return orderService.create(dto);   // 超时参数同样读自配置中心
+    }
+}</code></pre>
+    <div class="tip">💡 先按官方快速开始用 docker 起单机 Nacos（<code>docker run -e MODE=standalone -p 8848:8848 nacos/nacos-server:v2.3.2</code>），控制台默认 nacos/nacos；上线前把配置的 <strong>fail-fast</strong> 打开，配置缺失宁可启动失败也不要带病上线。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：按官方快速开始部署单机 Nacos，在控制台创建 dev/test 两个命名空间，创建 <code>order-service.yaml</code> 与共享配置 <code>common-log.yaml</code> 并观察 dataId、group 层级关系。</li>
+      <li><strong>任务 2</strong>：创建两个 Spring Boot 服务（order-service、payment-service）接入注册中心，A 通过服务名调用 B；随后手动下线 B，验证 A 感知到实例摘除并报错/重试。</li>
+      <li><strong>任务 3</strong>：实现示例二的动态刷新接口，把 <code>order.limit</code> 改 3 次，确认每次不重启即生效；再故意去掉 <code>@RefreshScope</code> 复现"改了不生效"并修复。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：模拟注册中心宕机（停掉 Nacos）观察客户端行为，配置本地快照缓存，并把 Nacos 部署为集群（2 节点）验证故障转移。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://nacos.io/zh-cn/docs/quick-start.html" target="_blank">Nacos 官方文档 · 快速开始</a> — <span class="desc">部署、控制台、OpenAPI 的第一手资料，本节所有操作的权威出处。</span></li>
+      <li>📖 <a href="https://github.com/alibaba/spring-cloud-alibaba" target="_blank">Spring Cloud Alibaba GitHub</a> — <span class="desc">版本对应关系、官方示例工程（spring-cloud-alibaba-examples）与配置项参考。</span></li>
+      <li>📖 <a href="https://spring.io/projects/spring-cloud-alibaba" target="_blank">Spring Cloud Alibaba 项目页</a> — <span class="desc">快速开始指南与文档链接，确认当前稳定版本的入口。</span></li>
+      <li>📖 <a href="https://github.com/alibaba/nacos" target="_blank">Nacos GitHub 仓库</a> — <span class="desc">distro/Raft 协议实现、控制台源码与常见 issue 排查记录。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能画出"实例注册 → 心跳 → 客户端拉取 → 负载均衡调用"的时序吗？</li>
+      <li>我能准确说出 namespace、group、dataId 各自隔离什么，并解释共享配置的优先级吗？</li>
+      <li>我的动态刷新链路里，<code>@RefreshScope</code>、<code>refresh: true</code>、dataId 后缀三处都配对了吗？</li>
+      <li>我能在 30 分钟内排查一个"服务注册上了但配置读不到"的问题吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m1-1.html">← 上一节：服务拆分原则与设计</a>
+    <a href="s4-m1-3.html">下一节：API 网关（Gateway）与负载均衡 →</a>
+  </div>
+
+</div>
+</body>
+</html>

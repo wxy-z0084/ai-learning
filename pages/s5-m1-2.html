@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能化升级方案设计（提示词 / RAG / 微调选型）· AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段五 · 传统项目智能化升级 / 模块一 · 项目集成 AI 能力 / <strong>智能化升级方案设计（提示词 / RAG / 微调选型）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段五 · 传统项目智能化升级</div>
+    <h1>智能化升级方案设计（提示词 / RAG / 微调选型）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块一 · 项目集成 AI 能力</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说清<strong>提示词工程、RAG、微调、长上下文</strong>四条路线各自解决什么问题、付出什么成本。</li>
+      <li>能够用<strong>决策流程</strong>为一个已通过可行性评估的场景选出主路线，并说明被否掉的路线为什么不合适。</li>
+      <li>能够写出一份完整的升级方案文档：模型选型、上下文装配、结构化输出、降级策略与评测方式。</li>
+      <li>能够识别方案设计中的高频坑：把静态知识塞提示词、RAG 不做切片、微调当知识库用。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：四条路线的定位</h3>
+    <p><strong>提示词工程</strong>：零数据成本、当天可上线，靠示例与指令约束模型行为；适合任务简单、知识量小（能塞进上下文）、对格式要求明确的场景，缺点是上下文窗口有限、知识一旦多了就写不下且容易被忽略。<strong>RAG（检索增强生成）</strong>：把业务文档切片向量化，先检索再作答；适合<strong>知识量大、更新频繁、必须给出出处</strong>的场景（产品手册、制度、FAQ），成本是需要维护索引与切片策略，且检索质量直接决定上界——<strong>RAG 的问题十有八九出在检索不在生成</strong>。<strong>微调</strong>：用业务数据调整模型权重，改变的是<strong>行为、风格、格式与领域语感</strong>，而不是注入可查询的事实；适合固定输出格式、专业术语密集、需要压缩提示词长度的场景。<strong>长上下文</strong>：把整本手册直接放进窗口，省去检索，但成本随长度线性上升、超长时中段信息易被忽略（"lost in the middle"），且知识更新要全量重传。</p>
+
+    <h3>知识点 2：选型决策流程</h3>
+    <p>按顺序问四个问题：<strong>① 知识会变吗、要溯源吗？</strong>会且要 → RAG 打底。<strong>② 纯靠更好的提示词 + 示例能不能达标？</strong>能 → 就停在提示词，别自找麻烦。<strong>③ 模型的"说话方式/格式/术语"不对，而知识本身没错？</strong>是 → 微调。<strong>④ 前三者都不够？</strong>组合：常见终局是<strong>"微调定行为 + RAG 供知识 + 提示词做兜底约束"</strong>。选型时还要同步确定模型档位：通用旗舰模型做复杂推理，轻量模型（或微调后的小模型）做高频简单任务，可把单次成本降一个数量级。任何方案都必须写<strong>降级策略</strong>：模型超时、输出不合法、检索为空时，走默认话术或转人工。</p>
+
+    <h3>知识点 3：方案文档的最小结构</h3>
+    <p>一份可评审的方案至少包含：业务场景与输入输出定义（字段、格式、长度）、模型与参数（名称、温度、最大输出、超时）、提示词或检索链路（系统提示、示例、切片大小、召回条数）、数据流向图（哪些字段进模型、哪些脱敏）、评测方式（评测集多少条、谁来打分）、成本与容量估算（QPS × 单次 token × 单价）、降级与回滚预案。写方案时最忌讳<strong>只有架构图没有验收标准</strong>——下一页我们会把验证方法补上，此处先把指标位置留出来。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：选型决策（YAML 片段），把上面的流程固化成团队可复用的清单，评审时逐条过：</p>
+<pre><code># route-selection.yaml —— 智能化升级选型决策
+decision:
+  - question: "答案需要引用企业文档且知识每周更新？"
+    yes: RAG                      # 检索打底，配合引用展示
+    no:  continue
+  - question: "只调整输出风格/格式/术语，不注入新事实？"
+    yes: 微调                      # LoRA 改行为，见模块二
+    no:  continue
+  - question: "把示例写进提示词后评测集达标？"
+    yes: 提示词工程（成本最低，先上线）
+    no:  组合方案：微调 + RAG + 结构化输出
+
+guardrails:                       # 任何路线都要有
+  - 输出必须为合法 JSON，否则重试 1 次后降级默认值
+  - 检索 top-k 全部低于相似度阈值 0.35 时拒答并转人工
+  - 系统提示中固定禁止编造条款号，要求引用原文</code></pre>
+    <p>示例二：结构化输出的<strong>方案配置</strong>，把模型参数与验收指标写在同一个文件里，方便评审与版本管理：</p>
+<pre><code>{
+  "scenario": "工单分类与摘要",
+  "route": "RAG + 提示词",
+  "model": { "name": "gpt-4o-mini", "temperature": 0.1, "max_tokens": 800, "timeout_ms": 8000 },
+  "prompt": {
+    "system": "你是客服工单处理助手。只依据提供的知识片段作答，不得编造；无法判断时输出 need_human=true。",
+    "few_shot": 3,
+    "output_schema": { "category": "enum", "summary": "string&lt;=120字", "need_human": "boolean" }
+  },
+  "rag": { "chunk_size": 512, "top_k": 4, "score_threshold": 0.35, "return_citations": true },
+  "fallback": { "on_timeout": "转人工队列", "on_invalid_json": "重试1次→默认分类 other" },
+  "acceptance": { "分类准确率": ">= 0.90", "摘要人工可用率": ">= 0.85", "P95 延迟": "<= 3s", "单次成本": "<= 0.01 元" }
+}</code></pre>
+    <div class="tip">💡 选型时先用 50 条真实样本跑一遍"纯提示词"基线。很多人花两周搭 RAG，最后发现多写两段示例就达标了——先证明提示词不够用，再上更重的方案。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：取上一节评估得分最高的场景，按决策流程给出选型结论：主路线是什么、为什么不用另外两条路线，写 200 字选型说明。</li>
+      <li><strong>任务 2</strong>：先做纯提示词基线：写系统提示 + 3 个示例，用 50 条真实样本自测，记录准确率，作为后续方案的对照组。</li>
+      <li><strong>任务 3</strong>：产出本场景的方案配置文件（参考示例二），必须包含模型参数、上下文装配方式、输出 schema、降级策略与验收指标。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：若选了 RAG，画一张数据流向图：文档从哪来、如何切片与入库、召回几条、哪些字段脱敏后再进提示词、引用如何回传给前端。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://platform.openai.com/docs/guides/prompt-engineering" target="_blank">OpenAI Prompt Engineering 官方指南</a> — <span class="desc">提示词路线的权威手册，写系统提示前先通读其策略清单。</span></li>
+      <li>📖 <a href="https://python.langchain.com/docs/" target="_blank">LangChain 官方文档</a> — <span class="desc">RAG 链路（切片、检索、组装提示词）的标准实现参考，照着能搭出可运行原型。</span></li>
+      <li>📖 <a href="https://docs.llamaindex.ai/" target="_blank">LlamaIndex 官方文档</a> — <span class="desc">专注数据接入与检索，索引类型、召回策略讲得最细。</span></li>
+      <li>📖 <a href="https://huggingface.co/docs/peft" target="_blank">Hugging Face PEFT 文档</a> — <span class="desc">微调路线的官方入口，评估"值不值得微调"时先看它的工作流。</span></li>
+      <li>📖 <a href="https://www.anthropic.com/engineering/building-effective-agents" target="_blank">Anthropic：Building Effective Agents</a> — <span class="desc">克制使用复杂编排的工程经验，帮你在方案里去掉不必要的环节。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能不看资料说出提示词、RAG、微调、长上下文各自适合与不适合的场景吗？</li>
+      <li>我能用三个问题的决策流程为一个新场景选型，并解释否掉的路线吗？</li>
+      <li>我的方案配置里有输出 schema、降级策略和可量化的验收指标吗？</li>
+      <li>我先跑过纯提示词基线并记录了数字，而不是直接上重方案吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s5-m1-1.html">← 上一节：传统项目 AI 升级可行性评估</a>
+    <a href="s5-m1-3.html">下一节：AI 接口与业务数据打通 →</a>
+  </div>
+
+</div>
+</body>
+</html>

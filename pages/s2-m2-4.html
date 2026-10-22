@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>流式响应（SSE / WebSocket） · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块二 · FastAPI / <strong>流式响应（SSE / WebSocket）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>流式响应（SSE / WebSocket）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块二 · FastAPI</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说清<strong>一次性 JSON 响应与流式响应</strong>的差异，解释为什么大模型对话普遍用流式（首字延迟体验）。</li>
+      <li>能够实现基于 <strong>SSE（Server-Sent Events）</strong> 的单向服务器推送：正确构造 text/event-stream 格式与事件字段。</li>
+      <li>能够实现 <strong>WebSocket 双向通信</strong>：完成握手、收发消息、处理断线与心跳。</li>
+      <li>能够按需求在 <strong>SSE 与 WebSocket 之间做出选择</strong>，并处理代理缓冲、连接生命周期等落地坑。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：为什么流式——首字延迟与体验</h3>
+    <p>普通接口是「请求 → 服务端处理完 → 一次性返回」。调用大模型时完整生成可能要 10 秒，用户会盯着空白页面等 10 秒；<strong>流式响应</strong>则是在一次 HTTP 连接上<strong>分批、增量</strong>地把数据推给客户端，第一个 token 一生成（TTFT，首字延迟）就先发出去，观感从「卡死」变成「打字机效果」，同时降低用户中途放弃的概率。流式也适合大文件下载、日志实时查看、进度上报等场景。<strong>核心判断</strong>：数据是「陆续产生、单向下发」→ 用流式；「一次调用一次返回」用普通 JSON 即可，别为了流而流。</p>
+
+    <h3>知识点 2：SSE 原理与格式</h3>
+    <p><strong>SSE（Server-Sent Events）</strong>基于普通 HTTP 长连接，服务端把响应头设为 <strong>Content-Type: text/event-stream</strong>，随后持续写入以换行分隔的事件文本，浏览器端用原生 <strong>EventSource</strong> 接收，断线时<strong>自动重连</strong>（可配合 id 字段与 Last-Event-ID 续传）。文本协议每行以<strong>冒号前缀</strong>区分字段：<strong>data:</strong> 负载（多行 data 累积为一条消息，必须以空行结尾）、<strong>event:</strong> 事件名（默认 message）、<strong>id:</strong> 事件 ID、<strong>retry:</strong> 重连间隔毫秒。<strong>注意</strong>：data 内容若含换行必须拆成多行 data，JSON 通常放在单行 data 中再由客户端 JSON.parse。对比轮询：SSE 是一次连接持续推、无重复请求开销、延迟低；对比 WebSocket：SSE 只能服务器→客户端单向，且天然走 HTTP，更容易穿透代理与鉴权（可复用 Cookie/Header），EventSource 不支持自定义请求头是它的一个限制。</p>
+
+    <h3>知识点 3：FastAPI 中实现 SSE</h3>
+    <p>用 <strong>StreamingResponse</strong>（来自 fastapi.responses，Starlette 提供）返回一个<strong>异步生成器</strong>：yield 出去的每一段都会立刻刷给客户端。生成器里可以 await 下游服务（如流式调用大模型 API），天然兼容 asyncio。要点：① 响应头显式设置 text/event-stream；② 每条消息结尾写 <strong>\n\n</strong>（事件分隔符）；③ 关掉中间层缓冲，Nginx 需要 <strong>X-Accel-Buffering: no</strong> 头或 proxy_buffering off，否则会攒批导致「不流」；④ 客户端断开时生成器会抛 CancelledError/GeneratorExit，要在 finally 里<strong>释放下游资源</strong>（关闭模型流、取消任务），否则泄漏连接。</p>
+
+    <h3>知识点 4：WebSocket 双向通信</h3>
+    <p><strong>WebSocket</strong> 先通过 HTTP <strong>Upgrade 握手</strong>升级连接，之后在<strong>同一 TCP 连接上全双工</strong>通信，两端随时互发消息，没有 HTTP 头的反复开销——适合聊天室、协同编辑、实时双向 agent 会话。FastAPI 用 <strong>@app.websocket("/ws")</strong> 定义，路径参数/依赖注入与 HTTP 路由一致；通过 <strong>await websocket.receive_json()</strong> 接收、<strong>await websocket.send_json()</strong> 发送，循环中处理 <strong>WebSocketDisconnect</strong> 异常实现退出。工程要点：连接要登记在线表并加锁维护；定期 <strong>ping/pong 心跳</strong> 探活；服务重启前向客户端发关闭码让它重连；鉴权可放在握手阶段（query 参数或 Cookie 校验，不通过就 accept 后立即 close）。</p>
+    <p><strong>选型口诀</strong>：单向推送、走 HTTP、要自动重连 → SSE；双向交互、高频小消息 → WebSocket；一问一答小数据 → 普通 REST。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：SSE 流式输出「打字机」回答（<strong>pip install fastapi uvicorn httpx</strong>，运行后访问 /docs 或前端用 EventSource 连 <strong>/chat-stream</strong>）：</p>
+<pre><code>import asyncio
+import json
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
+
+app = FastAPI()
+
+async def fake_llm(question: str):
+    """模拟流式生成：真实场景替换为对大模型 API 的流式调用"""
+    for word in "这是一个流式回答，逐字返回以降低首字延迟。".split("，"):
+        await asyncio.sleep(0.3)          # 模拟生成耗时
+        yield word
+
+@app.post("/chat-stream")
+async def chat_stream(question: str = "你是谁"):
+    async def event_source():
+        # SSE 头 + 禁用反向代理缓冲，保证逐条刷出
+        yield "retry: 3000\n\n"            # 客户端断线后 3s 重连
+        async for piece in fake_llm(question):
+            payload = json.dumps({"delta": piece}, ensure_ascii=False)
+            yield f"data: {payload}\n\n"   # 事件分隔必须是两个换行
+        yield f"data: {json.dumps({'delta': '[DONE]'})}\n\n"
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache",
+                 "X-Accel-Buffering": "no"},
+    )
+</code></pre>
+    <p>示例二：WebSocket 双向会话与断线处理：</p>
+<pre><code>from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+
+app = FastAPI()
+
+@app.websocket("/ws/chat")
+async def ws_chat(ws: WebSocket):
+    await ws.accept()                       # 完成握手
+    try:
+        while True:
+            msg = await ws.receive_json()   # {"text": "..."}
+            if msg.get("text") == "ping":
+                await ws.send_json({"type": "pong"})
+                continue
+            # 回声式应答，真实项目在此调用 agent 并分片回复
+            await ws.send_json({
+                "type": "chunk",
+                "data": f"已收到：{msg['text']}",
+            })
+    except WebSocketDisconnect:
+        print("客户端断开，清理该连接的会话资源")
+    except Exception:
+        await ws.close(code=1011)           # 异常关闭并告知原因
+</code></pre>
+    <div class="tip">💡 提示：前端接收 SSE 极简——new EventSource('/chat-stream') 后 onmessage 即可（POST 型需用 fetch + ReadableStream 读取）。调试时用 <strong>curl -N http://127.0.0.1:8000/chat-stream</strong>（-N 关闭 curl 自身缓冲）可直接看到逐条输出。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：实现 /chat-stream SSE 接口，用 curl -N 观察分批输出；数一数 data 行，确认每条都以空行分隔、JSON 可被解析。</li>
+      <li><strong>任务 2</strong>：写一个最小 HTML 页面用 EventSource 消费任务 1 的接口，把 delta 逐段拼接到页面，并演示 Ctrl+C 中断后自动重连的行为。</li>
+      <li><strong>任务 3</strong>：实现 WebSocket 聊天室：一个 in-memory 房间字典保存连接，实现「广播」——任一用户发消息，房间内其他用户都收到；处理某人断线时从字典移除。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：把任务 1 的生成器接到真实大模型流式接口上（或用 httpx.AsyncClient.stream 模拟），实现「用户关闭页面时取消上游请求」并在日志中打印取消事件。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://developer.mozilla.org/zh-CN/docs/Web/API/Server-sent_events" target="_blank">MDN：Server-sent events（中文）</a> — <span class="desc">EventSource 用法、自动重连与 Last-Event-ID 续传的完整说明。</span></li>
+      <li>📖 <a href="https://html.spec.whatwg.org/multipage/server-sent-events.html" target="_blank">HTML 规范：SSE 协议定义</a> — <span class="desc">data/event/id/retry 字段与换行规则的权威原文，格式有争议时对照它。</span></li>
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/advanced/custom-response/" target="_blank">FastAPI：自定义响应与 StreamingResponse</a> — <span class="desc">流式响应的官方写法、媒体类型与返回生成器的约定。</span></li>
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/advanced/websockets/" target="_blank">FastAPI：WebSocket 高级用法</a> — <span class="desc">聊天室官方示例、依赖注入与断开处理，直接可抄的范式。</span></li>
+      <li>📖 <a href="https://developer.mozilla.org/zh-CN/docs/Web/API/WebSockets_API" target="_blank">MDN：WebSocket API（中文）</a> — <span class="desc">客户端侧用法与重连策略，配合后端章节联调使用。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能默写符合规范的 SSE 事件文本（含空行分隔）并解释每个字段吗？</li>
+      <li>我能说清 SSE 与 WebSocket 的本质区别，并为三个具体场景各选对方案吗？</li>
+      <li>我知道「接口写对了但前端还是不流式」可能是哪两层缓冲造成的、如何排查吗？</li>
+      <li>我能处理客户端中途断开（清理下游资源）与服务重启（通知客户端重连）两类生命周期问题吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m2-3.html">← 上一节：接口鉴权（JWT / OAuth2）</a>
+    <a href="s2-m2-5.html">下一节：接口测试（Swagger）与部署（Uvicorn/Docker） →</a>
+  </div>
+
+</div>
+</body>
+</html>

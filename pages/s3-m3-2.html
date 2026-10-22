@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>流式输出与对话管理 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块三 · 业务系统 AI 集成 / <strong>流式输出与对话管理</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>流式输出与对话管理</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块三 · 业务系统 AI 集成</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>学完本节后，你能够解释 SSE 流式输出的原理，并说出它与 WebSocket、轮询的区别。</li>
+      <li>你能够用 Spring MVC 的 SseEmitter 实现"后端代理大模型流式接口"的完整链路。</li>
+      <li>你能够设计对话会话与消息的表结构，并实现多轮上下文的截断与组装策略。</li>
+      <li>你能够处理流式场景下的超时、断连、Nginx 缓冲等常见问题。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：为什么用流式，SSE 是什么</h3>
+    <p>大模型生成是逐 Token 的，若等全部生成完再返回，用户面对的是十几秒的白屏；<strong>流式输出</strong>让文字像打字机一样逐段出现，体感延迟从"总耗时"降到"首字耗时"。流式传输有三种实现：<strong>SSE（Server-Sent Events）</strong>是最简单的一种——HTTP 长连接，服务端以 <code>text/event-stream</code> 内容类型持续写 <code>data: xxx\n\n</code> 分隔的事件，浏览器原生用 EventSource 接收，天然支持断线重连；WebSocket 是双向全双工，适合协同编辑这类场景；轮询体验最差。模型接口本身也是 SSE：请求体带 <strong>stream: true</strong>，响应是一串 delta 片段（choices[0].delta.content），以 <code>data: [DONE]</code> 结束。</p>
+
+    <h3>知识点 2：后端代理转发</h3>
+    <p>前端<strong>不能</strong>直接调用模型厂商——会把 API Key 暴露到浏览器，且无法做鉴权、审计与缓存。标准做法是后端做代理：Controller 返回 <strong>SseEmitter</strong>（Spring MVC 的流式响应对象），在异步线程里读取模型的流，把每个片段 send 给客户端，最后 complete。要点有三：一是 SseEmitter 的超时要设长（如 120 秒），并用独立线程池执行转发任务，<strong>绝不能占用 Tomcat 的请求线程</strong>；二是转发时不要把整段拼好再发，收到一片发一片，同时在服务端累积完整文本用于落库；三是客户端断开要捕获异常并取消上游请求（调用 Call.cancel()），避免白白消耗 Token。</p>
+
+    <h3>知识点 3：对话管理与上下文控制</h3>
+    <p>对话系统要有<strong>会话（conversation）与消息（message）</strong>两层数据：会话表存标题、用户、更新时间，消息表存 role、content、token 数。用户发新消息时，从库中取出历史消息组装 messages。关键约束是<strong>上下文窗口有限</strong>：策略包括按 token 预算从旧到新截断、只保留最近 N 轮、或把早期对话用模型压缩成摘要（summary）后再拼接。还要考虑：同一会话并发发送时加分布式锁防止消息交错；历史消息入库时机（首字返回前先落 user 消息，complete 时落 assistant 消息，失败也要标记状态）；以及对话列表、重命名、删除等基本交互。常见坑：Nginx 默认开启 proxy_buffering 会把流缓冲成一坨再发（需 <code>proxy_buffering off;</code>）、忘记 flush 导致一次性输出、用 SSE 却返回了 application/json。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例：后端流式代理接口。前端用 fetch + ReadableStream 逐段读取 response.body 即可渲染打字机效果：</p>
+<pre><code>@RestController
+@RequestMapping("/chat")
+@RequiredArgsConstructor
+public class ChatController {
+    private final ChatService chatService;
+    private final AiStreamClient aiStreamClient;   // 封装模型流式调用
+
+    // 路径带会话 id，实现多轮对话
+    @PostMapping(value = "/stream/{conversationId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream(@PathVariable Long conversationId,
+                             @RequestBody ChatMessageDTO dto) {
+        // 150 秒超时；业务上下文用 lambda 保存
+        SseEmitter emitter = new SseEmitter(150_000L);
+        String userContent = dto.getContent();
+
+        // 在独立线程池中执行，避免阻塞 Tomcat 工作线程
+        AI_EXECUTOR.execute(() -&gt; {
+            StringBuilder full = new StringBuilder();
+            try {
+                // 2. 从数据库取历史消息，组装 messages（超出窗口的截断）
+                List&lt;Message&gt; history = chatService.loadHistory(conversationId);
+                List&lt;Map&lt;String, String&gt;&gt; messages = ContextBuilder.build(history, userContent);
+
+                // 3. 订阅模型流：每收到一片就转发给前端
+                aiStreamClient.streamChat(messages, chunk -&gt; {
+                    full.append(chunk);
+                    emitter.send(SseEmitter.event().name("delta").data(chunk));
+                });
+
+                // 4. 落库：用户消息与完整回复各存一条
+                chatService.appendUser(conversationId, userContent);
+                chatService.appendAssistant(conversationId, full.toString());
+                emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                emitter.complete();
+            } catch (Exception e) {
+                log.error("流式对话失败 convId={}", conversationId, e);
+                emitter.completeWithError(e);   // 前端据此提示重试
+            }
+        });
+        return emitter;
+    }
+}
+</code></pre>
+    <p>消息表的核心字段建议如下（一条消息即一个 role 片段，便于按 token 预算截断）：</p>
+<pre><code>CREATE TABLE chat_message (
+    id              BIGINT PRIMARY KEY,
+    conversation_id BIGINT       NOT NULL COMMENT '所属会话',
+    role            VARCHAR(16)  NOT NULL COMMENT 'system/user/assistant',
+    content         TEXT         NOT NULL,
+    tokens          INT          DEFAULT 0,
+    status          TINYINT      DEFAULT 1 COMMENT '1成功 2失败',
+    create_time     DATETIME     NOT NULL,
+    INDEX idx_conv (conversation_id, id)
+);
+</code></pre>
+    <div class="tip">💡 提示：联调时先用 curl -N 直接请求你的接口，能立刻看到逐行 data 事件；若 curl 有流而浏览器没有，九成是 Nginx 缓冲或响应头少了 text/event-stream。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：实现 /chat/stream 接口（带 stream: true 调用模型），用 curl -N 验证逐片段输出，并在页面上用 fetch 渲染打字机效果。</li>
+      <li><strong>任务 2</strong>：建 conversation 与 message 两张表，实现"新建会话→发消息→历史回显→会话列表"的最小闭环。</li>
+      <li><strong>任务 3</strong>：实现上下文截断：组装 messages 时按 token 预算只保留最近 10 条消息，验证超长会话不再报上下文超限错误。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：处理断连场景——客户端中途关闭页面时，取消上游模型请求、中断输出不落库，用日志证明资源已释放。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events" target="_blank">MDN：Server-sent events</a> — <span class="desc">SSE 协议格式与浏览器 EventSource 用法，含重连机制说明</span></li>
+      <li>📖 <a href="https://html.spec.whatwg.org/multipage/server-sent-events.html" target="_blank">HTML 标准：SSE 章节</a> — <span class="desc">协议细节的最终出处，排查事件解析问题时查</span></li>
+      <li>📖 <a href="https://spring.io/projects/spring-framework" target="_blank">Spring Framework 官方文档</a> — <span class="desc">SseEmitter 与 WebFlux（Flux 流式响应）的官方说明</span></li>
+      <li>📖 <a href="https://platform.openai.com/docs" target="_blank">OpenAI API 文档</a> — <span class="desc">stream 参数与 delta 结构的字段定义，各家国产模型基本沿用</span></li>
+      <li>📖 <a href="https://redis.io/docs" target="_blank">Redis 官方文档</a> — <span class="desc">多实例部署时可用 Redis 存在线会话状态，Pub/Sub 同步流式片段</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说出 SSE、WebSocket、轮询三者的区别，并解释为什么聊天场景首选 SSE 吗？</li>
+      <li>我的流式接口是否使用独立线程池、设置了合理超时，并在客户端断开时取消上游请求？</li>
+      <li>我的多轮对话如何组装上下文？超窗口时的截断或摘要策略是什么？</li>
+      <li>我能否用 curl -N 复现流式输出，并定位 Nginx 缓冲导致的"不流"问题？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m3-1.html">← 上一节：调用大模型 API（OpenAI / 国产大模型）</a>
+    <a href="s3-m3-3.html">下一节：Function Calling 工具调用集成 →</a>
+  </div>
+
+</div>
+</body>
+</html>

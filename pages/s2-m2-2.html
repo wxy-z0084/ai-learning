@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>依赖注入与中间件 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块二 · FastAPI / <strong>依赖注入与中间件</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>依赖注入与中间件</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块二 · FastAPI</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够用 <strong>Depends</strong> 把「获取当前用户、开数据库会话、读配置」等公共逻辑抽成可复用依赖。</li>
+      <li>能够使用 <strong>yield 依赖</strong> 管理资源的申请与释放，并解释同一请求内依赖只执行一次的缓存行为。</li>
+      <li>能够为路由、路由器、应用三个层级挂载依赖，实现「一组接口统一鉴权/统一校验」。</li>
+      <li>能够编写 <strong>HTTP 中间件</strong> 完成请求日志、耗时统计与 CORS 配置，并说清「用依赖还是用中间件」的判断标准。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：Depends——把公共逻辑声明出来</h3>
+    <p><strong>依赖注入（Dependency Injection, DI）</strong>的核心是：处理函数不再自己「制造」它需要的东西，而是<strong>声明</strong>「我需要什么」，框架负责在调用前把结果准备好。在 FastAPI 中，参数写成 <strong>db: Session = Depends(get_db)</strong> 即可——框架看到 Depends 就去执行 get_db()，把返回值注入进来。好处有三：① 公共代码（连接、校验、分页）只写一处；② 依赖本身也是参数，可继续声明自己的依赖形成<strong>依赖树</strong>（get_current_user 依赖 oauth2_scheme，oauth2_scheme 依赖 request）；③ 依赖函数带类型标注与 Query/Path 声明时，会自动参与文档生成与校验。</p>
+    <p><strong>缓存规则</strong>：同一个请求内，相同的依赖（同一函数、同参数）<strong>只执行一次</strong>，多个路由参数共享同一个对象——这正是「一次请求一个数据库会话」的实现原理。但要注意别依赖这个副作用：一个有状态的全局可变对象被多请求共享时，缓存反而会串状态。</p>
+
+    <h3>知识点 2：yield 依赖——资源的申请与清理</h3>
+    <p>数据库连接、事务、锁这类资源需要「用完归还」，用 <strong>yield 依赖</strong> 最合适：yield 之前的代码在请求处理前执行（申请资源），yield 的值注入路由，<strong>yield 之后的代码在响应发送后执行（清理）</strong>，且无论成功失败都会跑（类似 finally）。事务型依赖常用 try: yield session; session.commit() / except: rollback / finally: close 的结构。<strong>坑</strong>：yield 之后不能再返回值（返回值会被忽略并告警）；也不要在一个请求里混用多个各自开连接的依赖，否则可能超过连接池上限。</p>
+
+    <h3>知识点 3：依赖的挂载层级</h3>
+    <p>Depends 可以出现在四个位置，作用范围依次扩大：<strong>① 函数参数</strong>——只作用于该路由；<strong>② APIRouter(dependencies=[...])</strong>——作用于该路由器下所有路由（一组接口统一校验）；<strong>③ FastAPI(dependencies=[...])</strong>——全局生效（每个请求都执行）；<strong>④ include_router 时传入</strong>——只对引入的那批路由生效。注意：挂在路由上的依赖<strong>默认不使用注入值</strong>（只是执行副作用，如校验权限），若要拿到返回值必须在函数参数里再写一遍 Depends。依赖的执行顺序是「树的深度优先」：先跑最深层依赖。</p>
+
+    <h3>知识点 4：中间件与选择标准</h3>
+    <p><strong>中间件（middleware）</strong>是包在「整个应用」外面的一层：<strong>请求进入 → 中间件代码 → 路由处理 → 响应返回 → 中间件代码</strong>。用 <strong>@app.middleware("http")</strong> 定义，函数签名接收 Request 并必须 <strong>call_next(request)</strong> 后拿到响应再返回；request.body() 只能在 call_next 前读（读过 body 再交给路由会导致空体）。典型用途：请求 ID 与访问日志、耗时统计、统一加响应头、限流计数；跨域用内置的 <strong>CORS middleware</strong>（add_middleware CORSMiddleware）。</p>
+    <p><strong>选择标准</strong>：需要<strong>注入值</strong>给处理函数、只对<strong>部分路由</strong>生效、逻辑与业务紧密相关（鉴权、分页）→ 用<strong>依赖</strong>；对<strong>所有请求</strong>无差别生效、只关心进出流量本身（日志、压缩、超时、CORS）→ 用<strong>中间件</strong>。经验法则：能用依赖解决的别写中间件，因为依赖更可测、更局部化。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：一个 yield 数据库依赖 + 分页依赖 + 路由级权限依赖的组合，是生产项目的标准写法：</p>
+<pre><code>from typing import Iterator
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
+
+app = FastAPI()
+
+# ---------- 资源型依赖：yield 管理申请与清理 ----------
+def get_db() -&gt; Iterator[dict]:
+    db = {"conn": "fake-connection", "in_tx": True}
+    try:
+        yield db            # 注入给路由使用
+    finally:
+        db["in_tx"] = False # 无论成功失败都会执行清理
+        print("连接已归还连接池")
+
+# ---------- 校验型依赖：把参数解析也交给框架 ----------
+def pagination(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -&gt; dict:
+    return {"limit": limit, "offset": offset}
+
+# ---------- 身份型依赖：可被其他依赖继续复用 ----------
+def get_current_user(x_api_key: str = Header(...)) -&gt; dict:
+    if x_api_key != "dev-key":
+        raise HTTPException(status_code=401, detail="无效的 API Key")
+    return {"user": "alice", "role": "admin"}
+
+def require_admin(user: dict = Depends(get_current_user)) -&gt; dict:
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return user
+
+@app.get("/items")
+def list_items(
+    page: dict = Depends(pagination),
+    db: dict = Depends(get_db),          # 与业务代码完全解耦
+    user: dict = Depends(get_current_user),
+):
+    start = page["offset"]
+    return {"user": user["user"], "db": db["conn"],
+            "items": list(range(start, start + page["limit"]))}
+
+@app.get("/admin/stats", dependencies=[Depends(require_admin)])
+def stats():
+    """路由级依赖只做执行与拦截，不需要返回值"""
+    return {"qps": 128, "error_rate": 0.002}
+</code></pre>
+    <p>示例二：中间件统计每个请求的耗时并加上请求 ID，配合 CORS 配置：</p>
+<pre><code>import time
+import uuid
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # 前端开发服务器地址
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.middleware("http")
+async def add_timing(request: Request, call_next):
+    request_id = uuid.uuid4().hex[:8]
+    start = time.perf_counter()
+    response = await call_next(request)      # 进入路由并拿到响应
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Process-Time"] = f"{elapsed_ms:.1f}ms"
+    print(f"[{request_id}] {request.method} {request.url.path} "
+          f"-> {response.status_code} {elapsed_ms:.1f}ms")
+    return response
+
+@app.get("/ping")
+def ping():
+    return {"msg": "pong"}
+</code></pre>
+    <div class="tip">💡 提示：想看依赖链的执行顺序，写几个 print 打开 /docs 逐个调用即可——依赖树按深度优先执行，yield 依赖的清理代码总在响应发出之后运行。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：写一个 get_settings 依赖读取环境变量（或返回配置字典），在三个路由中注入；打印验证「同一请求内只执行一次」的缓存行为。</li>
+      <li><strong>任务 2</strong>：实现 yield 版本的 get_db（可用 dict 模拟连接池），在依赖里做 commit/rollback/finally close，并写一个会抛异常的路由验证回滚与关闭都被执行。</li>
+      <li><strong>任务 3</strong>：把「API Key 校验」依赖分别挂到单个路由、APIRouter、FastAPI(dependencies=...) 三个层级，对比各自生效范围与 401 行为。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：编写中间件给每个请求生成 Request-ID 并统计耗时；再把「鉴权」从中间件改造成依赖，写下你观察到的两者差异（能否注入、能否只作用于部分路由）。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/tutorial/dependencies/" target="_blank">FastAPI：依赖注入教程</a> — <span class="desc">Depends 语法、缓存规则、多层挂载的官方讲解，本节主线资料。</span></li>
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/tutorial/dependencies/dependencies-with-yield/" target="_blank">FastAPI：带 yield 的依赖</a> — <span class="desc">资源清理、事务控制与「退出后代码」的执行时机，数据库依赖必读。</span></li>
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/tutorial/middleware/" target="_blank">FastAPI：中间件</a> — <span class="desc">@app.middleware 写法与 call_next 语义，附请求/响应处理顺序图。</span></li>
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/tutorial/cors/" target="_blank">FastAPI：CORS 跨域</a> — <span class="desc">前后端分离联调时浏览器报跨域错误的标准解法与安全注意事项。</span></li>
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/tutorial/dependencies/classes/" target="_blank">FastAPI：类与可复用依赖</a> — <span class="desc">把依赖写成可配置的类（如分页器、鉴权器），进阶组织方式。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能画出一个请求从中间件进入、经依赖树执行、到路由返回的完整顺序吗？</li>
+      <li>我能解释同一请求内依赖为什么只执行一次，以及这会带来什么副作用吗？</li>
+      <li>我能用 yield 依赖写出「异常时回滚、结束时关闭连接」的数据库会话吗？</li>
+      <li>面对「给全部路由加访问日志」与「给管理接口加权限校验」两个需求，我能分别选对中间件与依赖吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m2-1.html">← 上一节：路由、请求与响应模型（Pydantic）</a>
+    <a href="s2-m2-3.html">下一节：接口鉴权（JWT / OAuth2） →</a>
+  </div>
+
+</div>
+</body>
+</html>

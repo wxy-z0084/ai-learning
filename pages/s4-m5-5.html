@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实战：高并发业务系统 AI 智能化升级 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块五 · 高并发系统落地 / <strong>实战：高并发业务系统 AI 智能化升级</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>实战：高并发业务系统 AI 智能化升级</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块五 · 高并发系统落地</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够把模块四的升级方法论与模块五的性能手段整合成一套完整的端到端落地方案。</li>
+      <li>能够为高并发主链路旁挂 AI 能力时，处理好"AI 慢而贵"与"主链路快而稳"之间的矛盾。</li>
+      <li>能够独立完成一次从需求评估到压测灰度的全流程实战，并产出可评审的交付文档。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：高并发场景下 AI 落位的三条铁律</h3>
+    <p>第一条：<strong>AI 永远不进主链路同步关键路径</strong>。用户下单的 300ms 预算里塞不下一次 2 秒的模型推理，AI 结果要么异步预计算（推荐、风控画像提前算好写进缓存），要么事后处理（订单完成后的智能客服跟进）。第二条：<strong>AI 流量与业务流量隔离</strong>——独立的 AI 网关、独立的线程池与连接池，AI 请求暴涨时不能抢走业务线程。第三条：<strong>AI 能力必须可降级</strong>，模型超时直接用缓存的最近一次结果或规则兜底，主链路毫发无损。</p>
+    <p>典型翻车案例：把向量检索嵌在商品详情接口里同步调用，大促当晚模型服务响应变慢，商品详情页跟着白屏——这不是 AI 的失败，是架构设计的失败。</p>
+
+    <h3>知识点 2：成本与性能的联合优化</h3>
+    <p>高并发 × LLM 意味着账单会爆炸，必须做三层优化：<strong>缓存</strong>——相同或相似请求的结果缓存（语义缓存用向量相似度匹配，命中率常能到 30%-50%）；<strong>分级调用</strong>——简单请求走小模型/本地模型，只有复杂请求才路由到大模型，用路由器先做意图分类；<strong>限流配额</strong>——对每个租户、每个接口设置 Token 配额与 QPS 上限，防止单个用户刷爆预算。</p>
+    <p>性能侧同样要压测 AI 网关本身：<strong>并发推理的吞吐受 GPU 显存限制</strong>，batch size、并发数、上下文长度三个参数直接决定单卡承载量，压测时要把这三个维度当成变量一起扫，找到成本最优的组合点。</p>
+
+    <h3>知识点 3：端到端交付清单</h3>
+    <p>一个完整的智能化升级项目应交付六样东西：<strong>①场景评估报告</strong>（打分排序、成功指标）；<strong>②集成方案</strong>（落位图、接口 Schema、降级预案）；<strong>③数据打通方案</strong>（映射表、幂等设计、对账脚本）；<strong>④压测报告</strong>（容量拐点、瓶颈清单）；<strong>⑤灰度计划</strong>（分阶段放量与熔断条件）；<strong>⑥监控看板</strong>（业务效果指标 + 系统性能指标双视图）。这六份文档也是向上汇报和跨团队对齐的通用语言。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例：电商订单系统的"智能客服 + 商品问答"AI 网关完整骨架，体现异步旁路、语义缓存与三级降级：</p>
+<pre><code># ai_gateway_full.py —— 高并发旁路 AI 服务骨架（FastAPI，可直接改造成 Demo）
+import asyncio, hashlib
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+app = FastAPI()
+SEM = asyncio.Semaphore(32)          # ① 并发闸门：GPU 吞吐上限，防止推理排队雪崩
+CACHE = {}                           # ② 语义缓存：key 为问题文本 hash（生产换向量库）
+
+class AskReq(BaseModel):
+    order_no: str
+    question: str
+
+async def call_model(q: str) -> str:
+    return await asyncio.wait_for(llm.chat(q), timeout=5.0)   # 短超时
+
+@app.post("/ai/ask")
+async def ask(req: AskReq):
+    key = hashlib.sha256(req.question.encode()).hexdigest()
+
+    # 级联：内存缓存 → 模型 → 规则兜底，任何一级失败都继续往下走
+    if key in CACHE:
+        return {"answer": CACHE[key], "source": "cache"}
+
+    async with SEM:                    # 超出并发上限的请求快速失败，不堆积
+        try:
+            answer = await call_model(req.question)
+        except (asyncio.TimeoutError, Exception):
+            return {"answer": default_rule_answer(req.question),
+                    "source": "rule-fallback"}   # ③ 降级：主业务完全不受影响
+    CACHE[key] = answer
+    return {"answer": answer, "source": "model"}
+
+# 业务系统调用约定：本接口只做异步补充信息展示，
+# 即使返回 rule-fallback，订单详情页也照常渲染，零感知。
+</code></pre>
+    <p>这个骨架把模块五的所有手段串了起来：<strong>Semaphore 限流</strong>守 GPU 吞吐，<strong>短超时 + 降级</strong>保护调用方，<strong>缓存</strong>直接砍掉一半推理成本。配合上一批学的灰度分流和监控，就构成了一套生产级的旁路 AI 能力。</p>
+    <div class="tip">💡 提示：实战练习时先用 Mock 模型（sleep 2 秒返回固定答案）把整条链路的限流、缓存、降级、监控跑通，再接入真实模型。链路正确性与模型效果解耦，是这类项目最重要的工程纪律。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：选定一个高并发业务场景（电商、票务、外卖均可），写出 AI 旁路落位图，明确标注"AI 不在主链路"的证据链。</li>
+      <li><strong>任务 2</strong>：实现上面的 AI 网关骨架（用 Mock 模型即可），用 JMeter 压测验证：并发 64、模型延迟 2 秒时，系统返回稳定且主业务接口 P95 不受影响。</li>
+      <li><strong>任务 3</strong>：为该网关设计成本优化方案，估算加缓存前后每日 Token 花费的变化（自拟单价与请求量）。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：整合模块四、五所学，产出一份完整的 6 件套交付文档目录，并为每份文档写一段 100 字的内容摘要。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://fastapi.tiangolo.com/" target="_blank">FastAPI 官方文档</a> — <span class="desc">异步 AI 网关的标准框架，重点看 async / 并发控制章节</span></li>
+      <li>📖 <a href="https://platform.openai.com/docs/guides/rate-limits" target="_blank">OpenAI Rate Limits 官方说明</a> — <span class="desc">理解模型服务侧的配额与限流语义，设计自己的并发闸门</span></li>
+      <li>📖 <a href="https://sentinelguard.io/zh-cn/docs/" target="_blank">Sentinel 官方文档</a> — <span class="desc">AI 网关的限流熔断直接复用本模块学过的规则配置</span></li>
+      <li>📖 <a href="https://jmeter.apache.org/usermanual/" target="_blank">Apache JMeter 官方手册</a> — <span class="desc">压测 AI 网关的工具，重点练阶梯加压与聚合报告</span></li>
+      <li>📖 <a href="https://martinfowler.com/articles/" target="_blank">Martin Fowler — Articles</a> — <span class="desc">演进式架构与故障隔离模式，写方案时的论证弹药库</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能证明我的 AI 能力在故障时不会影响主链路吗？（有降级测试报告）</li>
+      <li>我的 AI 网关是否有并发闸门、短超时、缓存三道防线？</li>
+      <li>我能否说出缓存、分级路由、配额三种成本优化手段各自能省多少？</li>
+      <li>我能否独立产出一套让技术负责人和业务负责人都认可的升级方案？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m5-4.html">← 上一节：容量规划与弹性伸缩</a>
+    <a href="s5-m1-1.html">下一节：传统项目 AI 升级可行性评估 →</a>
+  </div>
+
+</div>
+</body>
+</html>

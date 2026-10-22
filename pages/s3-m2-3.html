@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>权限认证（Spring Security / Sa-Token）· AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块二 · 企业级单体项目开发 / <strong>权限认证（Spring Security / Sa-Token）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>权限认证（Spring Security / Sa-Token）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块二 · 企业级单体项目开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>学完本节后，你能够区分<strong>认证（Authentication）</strong>与<strong>授权（Authorization）</strong>，并解释 Session 与 Token 两种方案的取舍。</li>
+      <li>你能够基于 RBAC 模型（用户-角色-权限）设计权限表结构，并写出权限判断逻辑。</li>
+      <li>你能够用 Sa-Token 完成登录、鉴权、权限拦截的完整链路，或用 Spring Security 配置一个过滤器链。</li>
+      <li>你能够识别密码明文、放行路径过宽、密钥泄漏等常见安全问题并修复。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：认证与授权，Session 与 Token</h3>
+    <p><strong>认证</strong>回答"你是谁"（校验用户名密码或 Token），<strong>授权</strong>回答"你能做什么"（判断是否有某个权限点）。企业系统普遍采用 <strong>RBAC 模型</strong>：用户 → 角色 → 权限三张关联表，权限既可以是"菜单/按钮"也可以是"接口标识"，这样新增岗位只需改角色的权限集合，不动代码。</p>
+    <p>会话方案上，传统 Session 把状态存在服务器内存，多实例部署时需要共享 Session（Redis）；<strong>Token（常用 JWT）</strong>把用户身份与过期时间签名后下发，服务器无状态，天然适合分布式。代价是 Token 一旦签发<strong>难以主动失效</strong>，需要配合黑名单（Redis 存 tokenId）或缩短有效期加刷新机制。选择标准：内网后台、要求可强制下线的系统可选 Sa-Token + Redis；跨端、跨服务的开放接口更适合 JWT。</p>
+
+    <h3>知识点 2：Spring Security 的过滤器链模型</h3>
+    <p>Spring Security 的核心是<strong>一串安全过滤器（FilterChain）</strong>：请求先经过 UsernamePasswordAuthenticationFilter 处理登录，再经过 ExceptionTranslationFilter、FilterSecurityInterceptor 做权限判断，最终才到你的 Controller。自定义配置的入口是定义一个 SecurityFilterChain Bean：配置哪些路径 permitAll（登录、文档接口）、哪些 authenticated、登录表单走什么 AuthenticationManager、密码用 <strong>BCryptPasswordEncoder</strong> 存储。方法级权限在类或方法上加 @PreAuthorize("hasAuthority('user:delete')")，需开启 @EnableMethodSecurity。</p>
+
+    <h3>知识点 3：Sa-Token 的轻量方案与选型建议</h3>
+    <p>Sa-Token 是国内流行的轻量鉴权框架，API 直观：<strong>StpUtil.login(id)</strong> 登录、StpUtil.logout() 注销、StpUtil.checkPermission("xxx") 校验权限（无权限抛异常）、StpUtil.getLoginIdAsLong() 取当前用户；配合 SaInterceptor 注册路由拦截器即可保护接口。它的 token 可配置存 Redis，支持同端互斥登录、踢人下线、临时 token 等开箱即用的能力。选型经验：<strong>Spring Security 生态标准、与 OAuth2/OIDC 集成好但配置繁琐；Sa-Token 上手快、中文文档完善、业务型后台开发效率更高</strong>。无论用哪个，都要记住三件事：密码永远 BCrypt 加盐哈希、密钥与数据库连接串放环境变量或配置中心、放行路径只写真正公开的接口（Swagger、健康检查）。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：Sa-Token 的登录与权限拦截，引入依赖 sa-token-spring-boot-starter、sa-token-redis-jackson 后即可使用：</p>
+<pre><code>// 登录接口
+@PostMapping("/login")
+public R&lt;String&gt; login(@Valid @RequestBody LoginDTO dto) {
+    // 1. 查询用户并校验密码（密码用 BCrypt 比对）
+    User user = userService.getByUsername(dto.getUsername());
+    if (user == null || !passwordEncoder.matches(dto.getPassword(), user.getPasswordHash())) {
+        throw new BizException(10001, "用户名或密码错误");
+    }
+    // 2. 登录并签发 token
+    StpUtil.login(user.getId());
+    StpUtil.getSession().set("user", user.getUsername());
+    return R.ok(StpUtil.getTokenValue());
+}
+
+// 拦截器注册：除 login、doc.html 外全部需要登录
+@Configuration
+public class SaTokenConfig implements WebMvcConfigurer {
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new SaInterceptor(handle -&gt;
+                StpUtil.checkLogin()))
+            .addPathPatterns("/**")
+            .excludePathPatterns("/login", "/doc.html", "/error");
+    }
+}
+
+// 权限校验：在需要的接口上直接写
+@GetMapping("/orders/{id}")
+public R&lt;OrderVO&gt; detail(@PathVariable Long id) {
+    StpUtil.checkPermission("order:query");  // 无权限抛 NotPermissionException
+    return R.ok(orderService.detail(id));
+}
+</code></pre>
+    <p>示例二：Spring Security 的最小可用过滤器链配置，两种方案可对照理解：</p>
+<pre><code>@Configuration
+@EnableMethodSecurity
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http.csrf(csrf -&gt; csrf.disable())
+            .sessionManagement(s -&gt; s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .authorizeHttpRequests(auth -&gt; auth
+                .requestMatchers("/login", "/doc.html", "/v3/api-docs/**").permitAll()
+                .anyRequest().authenticated())
+            .exceptionHandling(e -&gt; e.authenticationEntryPoint((req, res, ex) -&gt; {
+                res.setStatus(401);
+                res.setContentType("application/json;charset=UTF-8");
+                res.getWriter().write("{\"code\":40100,\"message\":\"未登录或登录已过期\"}");
+            }));
+        return http.build();
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+</code></pre>
+    <div class="tip">💡 提示：上线前用三个必测用例自检——未登录访问受保护接口是否返回统一 401 JSON、低权限账号访问高权限接口是否被拦截、错误密码连续多次登录是否触发限流或锁定。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：设计并建表 user / role / permission 及两张关联表，写入至少 2 个角色（普通用户、管理员）和 5 个权限点。</li>
+      <li><strong>任务 2</strong>：基于 Sa-Token 完成登录、获取当前用户、登出三个接口，验证 token 在 Redis 中的存取与注销后失效。</li>
+      <li><strong>任务 3</strong>：给"删除订单"接口加上 order:delete 权限校验，分别用有权限和无权限的账号调用，确认结果差异并返回统一错误码。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：实现"同一账号只允许一个有效登录"（新登录踢掉旧 token），并写清楚这对前端 token 失效处理的影响。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://spring.io/projects/spring-security" target="_blank">Spring Security 官方项目页</a> — <span class="desc">过滤器链、授权模型的权威文档，深入排查安全问题必读</span></li>
+      <li>📖 <a href="https://sa-token.cc" target="_blank">Sa-Token 官方文档</a> — <span class="desc">登录、权限拦截、踢人下线等 API 与示例，中文且更新活跃</span></li>
+      <li>📖 <a href="https://jwt.io/introduction" target="_blank">JWT 官方介绍</a> — <span class="desc">了解 Token 结构、签名与不可篡改原理，判断 JWT 适用边界</span></li>
+      <li>📖 <a href="https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html" target="_blank">OWASP 认证安全清单</a> — <span class="desc">密码存储、登录限流、会话管理的行业最佳实践</span></li>
+      <li>📖 <a href="https://spring.io/guides/gs/securing-web/" target="_blank">Spring Guide：Securing a Web Application</a> — <span class="desc">官方动手教程，从零跑通 Spring Security 登录流程</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能解释认证与授权的区别，并说出 RBAC 三张关联表各自存什么吗？</li>
+      <li>我能独立实现"登录签发 token → 拦截器校验 → 权限点判断 → 登出失效"完整链路吗？</li>
+      <li>我能说出 Session 与 Token 方案的核心取舍，以及 Token 如何实现主动失效吗？</li>
+      <li>我的项目中是否存在明文密码、过宽的 permitAll 路径或硬编码密钥？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m2-2.html">← 上一节：统一响应、异常处理与参数校验</a>
+    <a href="s3-m2-4.html">下一节：缓存（Redis）、任务调度（Quartz） →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多模态大模型（图文理解）调用 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块三 · 多模态应用搭建 / <strong>多模态大模型（图文理解）调用</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>多模态大模型（图文理解）调用</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块三 · 多模态应用搭建</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够读懂<strong>图文混合请求</strong>中 messages 数组的结构，说明 image_url 字段的作用。</li>
+      <li>能够独立调用一个具备视觉能力的大模型完成<strong>看图问答</strong>任务。</li>
+      <li>能够通过<strong>分辨率、图片数量、提问方式</strong>三个手段控制识别质量与成本。</li>
+      <li>能够判断哪些任务适合交给多模态模型、哪些应改用专用算法（OCR、目标检测）。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：多模态请求的消息结构</h3>
+    <p>多模态大模型调用的关键，是理解 messages 中的 content 不再是纯字符串，而是一个<strong>内容分片数组</strong>：元素类型为 <code>text</code> 时携带文字，为 <code>image_url</code> 时携带图像。模型会把文字与图像放在同一个语境里联合推理，这正是"图文理解"的基础。调用方式与纯文本几乎一致，只是消息体变复杂了一点。</p>
+    <p>常见坑：把图片链接放进普通文本里（"请看 https://xxx.png 这张图"）——多数模型并不会主动联网下载，必须写进 image_url 分片才会真正"看到"图片。</p>
+
+    <h3>知识点 2：影响识别质量的三个变量</h3>
+    <p><strong>分辨率</strong>：模型会把图片切成若干 512×512 的图块编码，小图放大后文字更易读，超大图则会被压缩，细小文字可能丢失；提交前把长边控制在 1568–2048 像素通常是质量与成本的平衡点。<strong>图片数量</strong>：一次提交多张图会显著增加 token 消耗，批量任务应控制单次输入张数。<strong>提问方式</strong>：问得越具体，答得越准——"图中表格第二行的金额是多少"远好于"这张图说了什么"。</p>
+
+    <h3>知识点 3：任务选型与成本意识</h3>
+    <p>多模态模型擅长<strong>语义级理解</strong>：描述场景、对比两张图差异、读懂 UI 截图并给出操作建议、根据商品图写营销文案。但它不擅长<strong>字符级精确提取</strong>：票据编号、密集表格中的微小数字，用专用 OCR + 表格识别更可靠、更便宜。工程上的通用做法是：先用规则或 OCR 做结构化提取，再把"结构化结果 + 原图"一起交给多模态模型做归纳与表达，兼顾准确与智能。</p>
+    <div class="tip">💡 成本技巧：多数平台对低分辨率图像按更少的 token 计费。批量打标、分类这类不需要看清细节的任务，可以主动降分辨率后再提交。</div>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>下面是调用多模态模型做<strong>看图问答</strong>的完整 Python 示例（OpenAI 兼容接口，换成国内平台只需改 base_url 与模型名）：</p>
+<pre><code>import base64
+from openai import OpenAI
+
+client = OpenAI(api_key="sk-xxx", base_url="https://api.openai.com/v1")
+
+def ask_with_image(question: str, image_path: str) -> str:
+    with open(image_path, "rb") as f:
+        data = base64.b64encode(f.read()).decode()
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": question},
+                {"type": "image_url",
+                 "image_url": {"url": f"data:image/png;base64,{data}"}}
+            ]
+        }],
+        temperature=0.2
+    )
+    return resp.choices[0].message.content
+
+print(ask_with_image("用中文概括这张截图的功能，并列出界面上的三个按钮", "ui.png"))
+</code></pre>
+    <p>在 Coze 中实现同样效果更简单：创建 Bot → 选择<strong>支持视觉的模型</strong>（如豆包视觉版/GPT-4o）→ 在提示词中写清输出格式。下面是一段可直接使用的提示词模板：</p>
+<pre><code>用户会发送一张图片和一个问题。请按以下格式回答：
+1. 【图片概述】一句话说明图片类型（截图/照片/图表/文档）与主题；
+2. 【关键信息】以要点列出图中可验证的信息，涉及数字务必逐字照抄；
+3. 【回答】针对用户问题作答；图中找不到依据时回答"图片中未提供该信息"。
+禁止推测图片外的内容，禁止编造文字。
+</code></pre>
+    <div class="tip">💡 提示：涉及金额、日期、编号这类关键字段时，在提示词里加一句"逐字照抄"能显著降低模型的"顺手改写"概率。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：用示例代码调用一次视觉模型，上传一张含文字的截图，验证输出与图中文字一致。</li>
+      <li><strong>任务 2</strong>：同一张图分别用"模糊提问"（这图是什么）和"精确提问"（图中表格第三行的数字）各问一次，对比答案质量。</li>
+      <li><strong>任务 3</strong>：把任务 1 的能力搬到 Coze Bot 上，配置提示词模板，实现"发图提问"的完整交互。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：准备一张 4K 大图与它的 1568px 压缩版，分别提交并记录 token 消耗与识别准确率差异。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://platform.openai.com/docs/guides/vision" target="_blank">OpenAI Vision 官方指南</a> — <span class="desc">图文请求结构、分辨率与计费规则的权威说明。</span></li>
+      <li>📖 <a href="https://www.coze.cn/docs" target="_blank">Coze 官方文档</a> — <span class="desc">平台内选择视觉模型、开启图片理解的操作手册。</span></li>
+      <li>📖 <a href="https://docs.anthropic.com/en/docs/build-with-claude/vision" target="_blank">Claude Vision 文档</a> — <span class="desc">另一套视觉接口规范，便于对比字段差异。</span></li>
+      <li>📖 <a href="https://docs.zhipu.ai" target="_blank">智谱 AI 开放平台文档</a> — <span class="desc">国内可直连的多模态 API 文档，含视觉模型调用示例。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能手写一个包含 text 与 image_url 分片的 messages 数组吗？</li>
+      <li>我能解释为什么"把图片链接写在文本里"往往无效吗？</li>
+      <li>面对批量打标、票据识别等任务，我能判断该用多模态模型还是专用 OCR 吗？</li>
+      <li>我完成过一次从代码调用到 Coze Bot 落地的完整图文理解实验吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m3-2.html">← 上一节：语音识别与合成应用</a>
+    <a href="s1-m3-4.html">下一节：多模态插件组合搭建场景应用 →</a>
+  </div>
+
+</div>
+</body>
+</html>

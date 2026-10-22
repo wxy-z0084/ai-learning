@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>对话记忆（Memory）管理 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块四 · LangChain / <strong>对话记忆（Memory）管理</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>对话记忆（Memory）管理</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块四 · LangChain</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够解释大模型 API 为什么是"无状态"的，以及记忆机制的本质（把历史重新拼回提示词）。</li>
+      <li>能够对比全量、窗口、摘要三类记忆策略，根据 token 预算选择合适的方案。</li>
+      <li>能够用 <strong>RunnableWithMessageHistory</strong> 为 LCEL 链接入多会话历史，并按 session_id 隔离不同用户。</li>
+      <li>能够把会话历史从内存迁移到 Redis/Postgres 等持久化后端，并处理 token 预算与隐私问题。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：无状态 API 与"记忆"的真相</h3>
+    <p>大模型 API 每次调用都是独立的：<strong>上一轮对话它什么都不记得</strong>。所谓"多轮对话能力"，其实是客户端把历史消息（Human/AI 消息交替）和新问题一起拼成消息列表发过去。因此"记忆管理"要解决的其实是三个工程问题：① 历史<strong>存哪里</strong>（内存、Redis、数据库）；② 会话<strong>怎么隔离</strong>（用 session_id 区分用户/话题）；③ 历史太长<strong>怎么裁剪</strong>（token 预算有限，还要给检索上下文留位置）。</p>
+
+    <h3>知识点 2：三类记忆策略及其取舍</h3>
+    <p>① <strong>缓冲全量（Buffer）</strong>：把全部历史原样发给模型，实现最简单，但长对话很快撞上上下文窗口，且 token 成本线性增长；② <strong>滑动窗口（Window）</strong>：只保留最近 K 轮，成本可控，代价是"忘了"早期信息（用户第 1 句说的偏好，第 20 轮就丢了）；③ <strong>摘要（Summary）</strong>：用一个小模型把旧历史压缩成一段摘要，兼顾长度与信息保留，但摘要有信息损耗、且每次更新多一次模型调用（延迟+费用）。实践中常用混合方案：<strong>近期消息保留原文，超出 token 上限的部分滚动摘要</strong>（即 SummaryBuffer 思路），这是性价比最高的折中。</p>
+    <p>选型经验值：客服/助手类场景窗口 10～20 轮 + 摘要兜底；工具调用频繁的 Agent 场景要注意<strong>把工具消息也纳入预算管理</strong>，否则几轮工具结果就能吃掉大半窗口。</p>
+
+    <h3>知识点 3：LangChain 0.2 的两套写法</h3>
+    <p>旧写法是 <code>langchain.memory</code> 里的 <code>ConversationBufferMemory</code> 等类，配合 <code>LLMChain(memory=...)</code> 使用，上手快但与 LCEL 管道不兼容；<strong>0.2 官方推荐的新写法</strong>是：<code>ChatMessageHistory</code> 存历史 + <code>RunnableWithMessageHistory</code> 包装任意链，通过 <code>session_id</code> 在运行时指定"用哪份历史"。新写法的优势：记忆与链解耦，同一个链可以服务任意多个并发会话，历史存储后端可自由替换（内存、Redis、Postgres、MongoDB 都有现成实现）。</p>
+
+    <h3>知识点 4：生产环境的注意事项</h3>
+    <p>① <strong>持久化</strong>：内存存储重启即失忆，上线必须换 Redis/Postgres，并设置合理的过期时间（如 7 天）；② <strong>会话隔离</strong>：session_id 必须由服务端生成并校验，绝不能让 A 用户传 B 用户的 id（越权读历史是高频安全漏洞）；③ <strong>token 预算分配</strong>：给"系统提示词 + 检索片段"留足空间后再决定历史保留多少；④ <strong>隐私脱敏</strong>：手机号、身份证等敏感信息在入库前打码，日志里不要明文打印完整历史。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：0.2 推荐写法——用 RunnableWithMessageHistory 给任意链加上多会话记忆：</p>
+<pre><code># pip install langchain langchain-openai
+from langchain_openai import ChatOpenAI
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.chat_history import InMemoryChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
+
+store = {}   # session_id -> ChatMessageHistory；生产环境换成 Redis/Postgres 实现
+
+def get_history(session_id: str) -> InMemoryChatMessageHistory:
+    if session_id not in store:
+        store[session_id] = InMemoryChatMessageHistory()
+    return store[session_id]
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "你是耐心的客服助手，结合历史对话理解用户的指代与省略。"),
+    MessagesPlaceholder("history"),          # 历史消息自动注入的位置
+    ("human", "{input}"),
+])
+chain = prompt | ChatOpenAI(model="gpt-4o-mini", temperature=0) | StrOutputParser()
+
+chat = RunnableWithMessageHistory(
+    chain, get_history,
+    input_messages_key="input",
+    history_messages_key="history",
+)
+
+cfg = {"configurable": {"session_id": "u1001"}}
+print(chat.invoke({"input": "我上周买的破壁机噪音特别大"}, config=cfg))
+print(chat.invoke({"input": "那它保修几年？"}, config=cfg))   # "它"能被正确理解为破壁机
+print(len(store["u1001"].messages), "条历史已保存")</code></pre>
+
+    <p>示例二：摘要式记忆（旧式 API，适合理解"滚动压缩"思想）：</p>
+<pre><code># pip install langchain langchain-openai
+from langchain.memory import ConversationSummaryBufferMemory
+from langchain.chains import LLMChain
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_openai import ChatOpenAI
+
+memory = ConversationSummaryBufferMemory(
+    llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+    max_token_limit=500,        # 历史超过 500 token 时，把较旧的消息压缩为摘要
+    return_messages=True,       # 以消息列表形式注入，而不是拼接成纯文本
+    memory_key="history",
+)
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "你是简洁的助理，根据对话历史回答。"),
+    MessagesPlaceholder(variable_name="history"),
+    ("human", "{input}"),
+])
+chain = LLMChain(llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                 prompt=prompt, memory=memory)
+print(chain.invoke({"input": "帮我记一下：项目代号叫青松"}))
+print(chain.invoke({"input": "项目代号是什么？"}))   # 旧消息已被摘要保留下来</code></pre>
+
+    <div class="tip">💡 提示：新项目直接用 RunnableWithMessageHistory；示例二的 ConversationSummaryBufferMemory 属于旧式 API，仅作为理解摘要思想的入口。无论哪种，都要在 <code>get_history</code> 这一层做好权限校验与持久化。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：用 RunnableWithMessageHistory 实现一个 5 轮以上的多轮对话，验证"指代消解"（第 3 轮问"它"指第 1 轮的东西）能被正确理解。</li>
+      <li><strong>任务 2</strong>：同时使用两个不同的 session_id 开启两段对话，确认历史互不串扰，并打印各自的消息条数。</li>
+      <li><strong>任务 3</strong>：实现"窗口 + 摘要"混合策略：保留最近 6 条消息原文，更早的自动摘要，并统计摘要前后的 token 用量变化。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：把历史存储换成 Redis（或本地 JSON 文件）实现，重启程序后验证对话仍然"记得"之前的内容。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://python.langchain.com/v0.2/docs/concepts/memory/" target="_blank">LangChain 记忆（Memory）概念</a> — <span class="desc">记忆类型全景与选型思路，先读这篇再写代码。</span></li>
+      <li>📖 <a href="https://python.langchain.com/v0.2/docs/how_to/chat_message_history/" target="_blank">How to：为对话添加历史记忆</a> — <span class="desc">RunnableWithMessageHistory 与各类存储后端的完整示例。</span></li>
+      <li>📖 <a href="https://redis.io/" target="_blank">Redis 官网</a> — <span class="desc">最常见的会话历史存储后端，天然支持过期与高并发读写。</span></li>
+      <li>📖 <a href="https://www.postgresql.org/" target="_blank">PostgreSQL 官网</a> — <span class="desc">需要强一致与复杂查询时的持久化选择，LangChain 有现成集成。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能解释"大模型没有记忆"这句话的含义以及记忆的实现原理吗？</li>
+      <li>我能说出全量、窗口、摘要三种策略的成本与效果取舍吗？</li>
+      <li>我能用 session_id 实现多会话隔离，并防止跨用户读取历史吗？</li>
+      <li>我的会话历史有持久化方案和过期策略，而不是只存在内存里吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m4-2.html">← 上一节：Agent 与 Tool（工具调用）</a>
+    <a href="s2-m4-4.html">下一节：LCEL 声明式链路编排 →</a>
+  </div>
+
+</div>
+</body>
+</html>

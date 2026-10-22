@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>上下文与需求描述技巧 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块四 · Vibe Coding / <strong>上下文与需求描述技巧</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>上下文与需求描述技巧</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块四 · Vibe Coding</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够解释<strong>上下文窗口</strong>的构成，并判断一次对话中哪些内容值得放进上下文。</li>
+      <li>能够用<strong>背景—目标—约束—验收标准</strong>四段式写出可直接执行的需求描述。</li>
+      <li>能够通过拆分任务、聚焦文件、主动补充报错信息等方式<strong>管理上下文</strong>，减少跑偏。</li>
+      <li>能够诊断"AI 越改越乱"的会话，并用<strong>开新会话 + 精简上下文</strong>的办法恢复质量。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：上下文是稀缺资源</h3>
+    <p>模型在一次回答里"看得见"的内容统称上下文：你贴的代码、历史对话、被 @ 的文件、工具自动检索的片段。它有两个特性决定了你的策略：<strong>有限</strong>（超出窗口会被截断，最早的指令最先被挤掉）和<strong>有噪声</strong>（无关内容越多，模型越容易被带偏）。因此上下文管理的本质是"花同样的窗口预算，装进最高信噪比的信息"。</p>
+    <p>实操上遵循三条原则：<strong>给增量</strong>（只贴改动相关的片段，不要把整个仓库粘进去）、<strong>给结构</strong>（用标题分隔背景/需求/约束，模型对结构化文本的遵循度更高）、<strong>给锚点</strong>（明确"以 @models/user.py 为准"，防止模型凭印象编造字段）。</p>
+
+    <h3>知识点 2：需求描述的四段式</h3>
+    <p>一段好的需求包含四部分：<strong>背景</strong>（我们在做什么系统、现在卡在哪）、<strong>目标</strong>（要新增/修复的具体功能，一句话说清）、<strong>约束</strong>（技术栈、不能改动的模块、性能与安全要求）、<strong>验收标准</strong>（怎样算完成：接口路径、返回结构、要通过的测试）。其中验收标准最容易被忽略，却最能减少返工——它把"你觉得做完了"变成"机器可判定的完成"。</p>
+    <p>另一个技巧是<strong>给出示例</strong>："输入 {phone, code}，返回 {token, user}"比"实现登录功能"清晰十倍。没有示例时，让模型先复述它的理解再动手（"先用三句话说明你的实现方案，等我确认后再写代码"），成本极低、收益极高。</p>
+
+    <h3>知识点 3：会话的健康度管理</h3>
+    <p>长会话并不总是更好。当出现这些信号，就该开新会话：模型反复忘记你早先定下的约定；同一错误改了三轮还在；回答越来越长却越来越空。开新会话时不要从零描述，而是让旧会话<strong>产出一份交接摘要</strong>：项目背景、已完成的改动、当前失败点、下一步计划。这段摘要就是新会话的最小上下文。此外，把稳定的要求沉淀进规则文件（上一节的 <code>.cursorrules</code>）比每次重复叮嘱更可靠。</p>
+    <div class="tip">💡 一段需求里出现三个以上"顺便""另外""还有"时，基本可以确定该拆成三次对话。一次只解决一个问题，AI 的通过率会显著上升。</div>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一是同一需求的<strong>差/好对照</strong>。差的写法只有一句话：</p>
+<pre><code>帮我写一个导出 Excel 的功能。
+</code></pre>
+    <p>好的写法是完整的四段式，可直接粘贴到 Cursor / Copilot Chat 中使用：</p>
+<pre><code>【背景】
+我们是 FastAPI 的订单服务（Python 3.11），订单数据在 orders 表，
+现有接口只有 JSON 分页查询，运营同学需要自助导出。
+
+【目标】
+新增订单导出接口：按筛选条件导出为 .xlsx 文件流。
+
+【约束】
+1. 使用 openpyxl，不引入 pandas；
+2. 必须复用 services/order.py 的查询逻辑，禁止在路由层写 SQL；
+3. 单次导出上限 5000 行，超出时返回 422 并提示缩小时间范围；
+4. 响应为流式 attachment，文件名含日期，如 orders_20260101.xlsx。
+
+【验收标准】
+1. 路由：GET /api/v1/orders/export，参数与现有 /orders 列表接口一致；
+2. 列：订单号、用户名、金额、状态、创建时间（中文表头）；
+3. 补一个 pytest 用例：导出 2 行数据，断言响应头 content-type 与文件可被 openpyxl 打开；
+4. 完成后运行 pytest 并贴出结果。请先复述实现方案，确认后再动手。
+</code></pre>
+    <div class="tip">💡 提示：最后一句"先复述方案"是性价比最高的护栏。它让你在模型跑偏前有一次零成本纠偏的机会。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：把你手头正在做的一个小需求，改写成"背景—目标—约束—验收标准"四段式，并让 AI 执行一次。</li>
+      <li><strong>任务 2</strong>：故意用一句话模糊需求让 AI 生成，再用四段式重做一次，对比两版代码的可用性差异并记录。</li>
+      <li><strong>任务 3</strong>：在一个长会话里让模型复述项目约定，检验它是否遗忘；若遗忘，练习"让旧会话写交接摘要 → 开新会话续做"的流程。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：把你反复叮嘱 AI 的 5 条要求整理进项目规则文件，验证新会话是否不再需要口头重复。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://docs.cursor.com/context/rules" target="_blank">Cursor Rules 官方说明</a> — <span class="desc">项目级规则的配置方式，把稳定约束固化到仓库。</span></li>
+      <li>📖 <a href="https://docs.cursor.com/context/@-symbols/ai-with-files" target="_blank">Cursor @ 引用文档</a> — <span class="desc">学会用 @文件、@codebase 精准喂上下文。</span></li>
+      <li>📖 <a href="https://docs.github.com/en/copilot/using-github-copilot/tips-for-using-github-copilot" target="_blank">Copilot 使用技巧</a> — <span class="desc">官方总结的提示与上下文实践，适合作为日常速查。</span></li>
+      <li>📖 <a href="https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/chain-of-thought" target="_blank">Anthropic 提示工程：思维链</a> — <span class="desc">理解"先讲思路再动手"为何能提升复杂任务质量。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能不看模板写出包含背景、目标、约束、验收标准的需求吗？</li>
+      <li>我是否习惯在长任务前让 AI 先复述方案再执行？</li>
+      <li>当会话跑偏时，我能否用交接摘要快速开一个干净的新会话？</li>
+      <li>我能否说出上下文"有限"和"有噪声"分别对应什么应对策略？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m4-1.html">← 上一节：AI 结对编程工具使用（Cursor、Copilot 等）</a>
+    <a href="s1-m4-3.html">下一节：AI 生成代码的审查与调整 →</a>
+  </div>
+
+</div>
+</body>
+</html>

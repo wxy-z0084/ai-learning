@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>插件调用与工作流编排 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块一 · Coze 平台使用 / <strong>插件调用与工作流编排</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>插件调用与工作流编排</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块一 · Coze 平台使用</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够理解插件（Plugin）的本质——带鉴权的 API 封装，并会在 Bot 中添加与配置插件。</li>
+      <li>能够使用「创建插件」从 OpenAPI/Swagger 文档导入自定义接口，把公司内部服务接入 Bot。</li>
+      <li>能够用可视化画布编排包含<strong>大模型节点、代码节点、条件分支、知识库检索</strong>的多节点工作流。</li>
+      <li>能够通过试运行与日志定位工作流中的失败节点，并把工作流作为 Bot 的技能触发。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：插件是封装好的工具，不是 Prompt</h3>
+    <p>插件让模型获得「手」：搜索网页、查天气、读图表、调用自建接口。每个插件由若干<strong>工具（Tool）</strong>组成，每个工具对应一个 HTTP 接口，有明确的<strong>输入参数</strong>与<strong>返回结构</strong>。扣子内置了「必应搜索」「图片理解」「网页读取」等官方插件，也支持「创建插件」：填名称与描述（模型靠这段描述决定何时调用，务必写清「什么时候用、参数怎么给」），再从 <strong>OpenAPI/Swagger</strong> 文档导入接口定义或手工逐个添加工具。</p>
+    <p>模型是否会调用插件，取决于三点：工具描述是否清晰、用户问题是否匹配、人设里是否允许使用该工具。常见坑：描述写得含糊（如「查询数据的接口」），模型在不该调的时候调、该调的时候不调。正确写法是描述里写明触发条件与参数取值范围，例如「当用户询问股票价格且给出股票代码时调用；code 参数为 6 位数字或字母组合」。</p>
+
+    <h3>知识点 2：工作流——把多步推理变成确定性流程</h3>
+    <p>插件解决单步调用，<strong>工作流（Workflow）</strong>解决「按顺序/按条件执行多个步骤」。工作流在可视化画布上由<strong>节点</strong>和<strong>连线</strong>构成，常用节点包括：<strong>开始节点</strong>（定义输入变量）、<strong>大模型节点</strong>（做总结、抽取、改写）、<strong>插件节点</strong>（执行一次工具调用）、<strong>代码节点</strong>（Python/JavaScript 做数据清洗与计算）、<strong>条件分支</strong>（IF/ELSE 与选择器）、<strong>知识库检索节点</strong>、<strong>数据库节点</strong>、<strong>结束节点</strong>（输出结构化结果）。节点之间传递的是<strong>变量</strong>：每个节点的输出可以在后续节点通过「引用」方式直接取用。</p>
+    <p>什么时候用工作流而不是纯提示词？当流程<strong>步骤固定、需要确定性、需要调用多个工具并加工结果</strong>时（例如「联网搜索三源 → 交叉校验 → 生成摘要」），工作流远比让模型自由发挥可靠；而开放对话、创意生成则不必强行套工作流。</p>
+
+    <h3>知识点 3：试运行、错误处理与对外发布</h3>
+    <p>画布右上角「试运行」会带着一组输入参数走完整条链路，下方<strong>日志面板</strong>逐节点显示输入输出与耗时，哪个节点报错一目了然。两个高频错误：一是<strong>上游变量引用了不存在的输出</strong>（连线没接对），二是<strong>大模型节点输出非预期格式</strong>导致下游代码节点解析失败——对策是在大模型节点用「输出结构化」功能约束 JSON schema，而不是用正则去猜模型输出。对可能失败的外部插件节点，可在节点配置里开启<strong>异常处理</strong>（重试、超时、兜底输出），避免一次网络抖动让整条工作流白跑。</p>
+    <p>工作流调试通过后，在 Bot 编排页「技能」区添加该工作流，模型会根据工作流的<strong>名称与描述</strong>决定是否触发；也可以开启「优先调用」让它总是先走工作流。发布后工作流版本随 Bot 版本一起固化，改工作流记得重新发布。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：从 OpenAPI 文档创建自定义插件。假设公司内部有一个「员工请假查询」接口，把下面这份 Swagger 粘进「创建插件 → 导入 OpenAPI」即可自动生成工具：</p>
+<pre><code>openapi: 3.0.0
+info:
+  title: 内部人事查询 API
+  version: "1.0"
+servers:
+  - url: https://hr.example.com/api
+paths:
+  /leave/balance:
+    get:
+      summary: 查询员工年假余额
+      description: 当用户询问自己的年假、调休余额时调用该接口
+      operationId: getLeaveBalance
+      parameters:
+        - name: emp_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: 员工工号，形如 E10023
+      responses:
+        "200":
+          description: 余额信息
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  annual_leave:
+                    type: number
+                    description: 剩余年假天数
+                  comp_time:
+                    type: number
+                    description: 剩余调休小时
+</code></pre>
+    <p>示例二：一个「热点新闻摘要」工作流的节点结构。开始节点接收 <code>topic</code>，依次经过搜索插件、代码节点去重、大模型节点生成摘要，最后由结束节点输出：</p>
+<pre><code>工作流：hot_news_summary
+[开始] topic: string
+   ↓
+[插件] 必应搜索.bing_web_search(query = topic, count = 5)
+   ↓ results(数组，含 title/url/snippet)
+[代码] Python 节点：按 url 去重、截断 snippet 至 200 字
+   def main(args):
+       seen, clean = set(), []
+       for item in args["results"]:
+           if item["url"] in seen:
+               continue
+           seen.add(item["url"])
+           clean.append({**item, "snippet": item["snippet"][:200]})
+       return {"deduped": clean[:3]}   # 保留前 3 条
+   ↓ deduped(数组)
+[大模型] 输入 deduped，指令：用 3 句话总结新闻要点，注明信息来源 URL，
+         查不到就直说，禁止编造
+   ↓ summary(string)
+[结束] 输出变量：summary、source_list(由代码节点透传)
+</code></pre>
+    <div class="tip">💡 提示：大模型节点务必开启「结构化输出」并给出 JSON schema（如 {"summary": string, "sources": array}），下游节点引用字段才稳定；纯文本输出靠提示词约束格式，10 次里总有 1 次跑偏。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：给上一节的 Bot 添加「必应搜索」插件，问一个需要联网的问题（如「今天有什么 AI 新闻」），在调试区观察插件调用轨迹与返回内容。</li>
+      <li><strong>任务 2</strong>：新建一个至少 5 个节点的工作流「热点摘要」，包含搜索插件节点、代码去重节点、大模型总结节点，试运行并保存日志截图。</li>
+      <li><strong>任务 3</strong>：在工作流中加一个条件分支：搜索结果为空时直接走「未找到相关信息」的结束分支，验证空结果场景不会报错。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：用公开的 Swagger 文档（如 Petstore）练习导入插件，再把生成的接口改造成你公司内部的一个真实只读接口，注意配置好鉴权头。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://www.coze.cn/docs" target="_blank">扣子官方文档 · 插件与工作流</a> — <span class="desc">节点类型、异常处理、结构化输出的权威参考，编排时按需查阅。</span></li>
+      <li>📖 <a href="https://swagger.io/specification/" target="_blank">OpenAPI 3.0 规范</a> — <span class="desc">导入自定义插件前看懂接口定义的必备资料。</span></li>
+      <li>📖 <a href="https://www.coze.cn/open" target="_blank">扣子开放平台</a> — <span class="desc">用 API 触发已发布工作流、做自动化集成的接口文档。</span></li>
+      <li>📖 <a href="https://platform.openai.com/docs/guides/prompt-engineering" target="_blank">OpenAI 工具调用（Function Calling）指南</a> — <span class="desc">理解「模型如何决定调用插件」的底层机制，概念与扣子通用。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能用一句话说明插件和工作流各自解决什么问题吗？</li>
+      <li>我能独立把一份 OpenAPI 文档导入为扣子插件并配置鉴权吗？</li>
+      <li>工作流试运行失败时，我知道按什么顺序排查（连线→引用→结构化输出→超时）吗？</li>
+      <li>我能判断一个需求该用「纯提示词」还是「工作流」实现吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m1-2.html">← 上一节：Bot 创建与人设配置</a>
+    <a href="s1-m1-4.html">下一节：知识库（文档/表格）配置 →</a>
+  </div>
+
+</div>
+</body>
+</html>

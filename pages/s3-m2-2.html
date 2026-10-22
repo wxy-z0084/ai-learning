@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>统一响应、异常处理与参数校验 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块二 · 企业级单体项目开发 / <strong>统一响应、异常处理与参数校验</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>统一响应、异常处理与参数校验</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块二 · 企业级单体项目开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>学完本节后，你能够设计一套前后端约定的<strong>统一响应结构</strong>与分段错误码体系。</li>
+      <li>你能够用 @RestControllerAdvice 实现全局异常处理，让所有异常都收敛为同一种 JSON 格式。</li>
+      <li>你能够基于 Bean Validation 完成入参校验，并收集字段级错误返回给前端定位问题。</li>
+      <li>你能够区分业务异常与系统异常的处理策略，保证不向客户端泄漏堆栈等敏感信息。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：统一响应结构与错误码分段</h3>
+    <p>接口返回值必须结构固定，最常见的约定是 <strong>{code, message, data}</strong> 三段式：code 为 0（或 200）表示成功，非 0 表示失败；message 给出人类可读的提示；data 承载业务数据。前端只需写一套解析逻辑：按 code 分支，成功取 data，失败弹 message。用一个泛型类 <strong>R&lt;T&gt;</strong> 配合静态方法 R.ok(...)、R.fail(...)，可以把所有 Controller 的返回值类型统一起来。</p>
+    <p><strong>错误码要分段管理</strong>，例如：1xxxx 表示业务规则错误（库存不足）、2xxxx 表示参数错误（手机号格式不对）、4xxxx 表示认证授权问题、5xxxx 表示系统内部错误。错误码集中定义在常量类或枚举中，禁止散落在各处 new RuntimeException("xxx")——否则一年后没人知道某个字符串到底从哪来、会不会被前端依赖。</p>
+
+    <h3>知识点 2：全局异常处理</h3>
+    <p>用 <strong>@RestControllerAdvice + @ExceptionHandler</strong> 建立统一的异常出口。需要至少覆盖这几类：自定义业务异常 BizException（返回业务错误码，不记 error 日志）、参数校验异常 MethodArgumentNotValidException（转为 2xxxx 并提取字段信息）、类型转换/请求体解析错误 HttpMessageNotReadableException、以及兜底的 Exception（返回 500，记录完整堆栈到日志）。Spring 会<strong>优先匹配最具体的异常类型</strong>，子类处理器优先于父类。</p>
+    <p>常见坑：兜底处理器把堆栈直接放进 message 返回（泄漏包名、SQL、内网路径）；业务异常用后没在 advice 里注册，结果被兜底处理成 500 并打了一屏 error 日志；在循环里 throw 业务异常做流程控制，导致大量无效异常创建开销。</p>
+
+    <h3>知识点 3：参数校验（Bean Validation）</h3>
+    <p>入参校验要在<strong>进入 Service 之前</strong>完成，靠 JSR-380 / Jakarta Bean Validation 注解：@NotBlank、@Size、@Min、@Pattern 等写在 DTO 字段上，Controller 方法参数前加 <strong>@Valid</strong>（对一个对象校验）或类上加 @Validated 再配合分组接口（新增、修改分别校验不同字段）。校验失败会抛 ConstraintViolationException 或 MethodArgumentNotValidException，在全局异常处理器中统一取出 field + message 拼装返回。注意：路径变量与请求参数（@PathVariable、@RequestParam）的校验必须把 @Validated 放在<strong>Controller 类上</strong>才生效，这是最高频的踩坑点。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>第一步：统一响应类与业务异常。这段代码建议放在 common 包，全项目复用：</p>
+<pre><code>@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class R&lt;T&gt; {
+    private int code;
+    private String message;
+    private T data;
+
+    public static &lt;T&gt; R&lt;T&gt; ok(T data) {
+        return new R&lt;&gt;(0, "success", data);
+    }
+
+    public static &lt;T&gt; R&lt;T&gt; fail(int code, String message) {
+        return new R&lt;&gt;(code, message, null);
+    }
+}
+
+// 业务异常：只带错误码和提示，不带堆栈
+@Getter
+public class BizException extends RuntimeException {
+    private final int code;
+    public BizException(int code, String message) {
+        super(message);
+        this.code = code;
+    }
+}
+</code></pre>
+    <p>第二步：全局异常处理器 + 校验注解，覆盖成功、参数错、业务错、系统错四种出口：</p>
+<pre><code>@Slf4j
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    // 参数校验失败：提取每个字段的具体原因
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public R&lt;Void&gt; handleValid(MethodArgumentNotValidException ex) {
+        String msg = ex.getBindingResult().getFieldErrors().stream()
+                .map(e -&gt; e.getField() + ":" + e.getDefaultMessage())
+                .collect(Collectors.joining("; "));
+        return R.fail(20001, msg);
+    }
+
+    // 业务异常：预期内，返回业务码，只记 warn
+    @ExceptionHandler(BizException.class)
+    public R&lt;Void&gt; handleBiz(BizException ex) {
+        log.warn("业务异常 code={} msg={}", ex.getCode(), ex.getMessage());
+        return R.fail(ex.getCode(), ex.getMessage());
+    }
+
+    // 兜底：返回系统错误，堆栈只进日志，绝不返回给前端
+    @ExceptionHandler(Exception.class)
+    public R&lt;Void&gt; handleOther(Exception ex) {
+        log.error("系统异常", ex);
+        return R.fail(50000, "系统繁忙，请稍后重试");
+    }
+}
+
+// 入参 DTO：字段级校验
+@Data
+public class UserCreateDTO {
+    @NotBlank(message = "用户名不能为空")
+    @Size(min = 2, max = 20, message = "用户名长度 2-20")
+    private String username;
+
+    @NotBlank(message = "手机号不能为空")
+    @Pattern(regexp = "^1[3-9]\\d{9}$", message = "手机号格式不正确")
+    private String phone;
+}
+
+// Controller：@Valid 触发校验
+@PostMapping("/users")
+public R&lt;Long&gt; create(@Valid @RequestBody UserCreateDTO dto) {
+    return R.ok(userService.create(dto));
+}
+</code></pre>
+    <div class="tip">💡 提示：把错误码定义成枚举（code + message + 是否可重试），既能给前端生成文档，也方便后续做告警分类；正则里的反斜杠在 Java 字符串中要写两次（\\d）。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：创建 R、BizException、GlobalExceptionHandler 三件套，并让项目中所有 Controller 的返回值都改为 R 包装。</li>
+      <li><strong>任务 2</strong>：为"用户注册"接口编写 DTO 校验（用户名、手机号、密码强度），用 Apifox 或 curl 发送缺字段、格式错的请求，验证返回的字段级错误信息。</li>
+      <li><strong>任务 3</strong>：故意在 Service 中抛出 BizException 和 NullPointerException，对比日志与响应：业务异常只 warn 且返回业务码，空指针走兜底返回 500 且日志含完整堆栈。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：设计分组校验——新增用户时密码必填、修改用户资料时密码不允许传，用 @Validated(CreateGroup.class) 实现并验证。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://beanvalidation.org/" target="_blank">Bean Validation 规范官网</a> — <span class="desc">JSR-380/Jakarta Validation 注解的权威定义，查注解含义和分组机制首选</span></li>
+      <li>📖 <a href="https://hibernate.org/validator/" target="_blank">Hibernate Validator</a> — <span class="desc">Spring Boot 默认集成的校验实现，含内置注解与自定义注解教程</span></li>
+      <li>📖 <a href="https://spring.io/projects/spring-boot" target="_blank">Spring Boot 官方文档</a> — <span class="desc">Web 层异常处理与校验的自动配置说明，检索 @ControllerAdvice</span></li>
+      <li>📖 <a href="https://www.baeldung.com/exception-handling-for-rest-with-spring" target="_blank">Exception Handling for REST with Spring</a> — <span class="desc">全局异常处理的经典实践文章，含各类异常的取舍讨论</span></li>
+      <li>📖 <a href="https://spring.io/projects/spring-framework" target="_blank">Spring Framework 官方文档</a> — <span class="desc">Web MVC 部分详细说明了异常解析顺序，排查"处理器没生效"时看这里</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能画出一个接口从入参校验到异常处理的完整时序，并说出每种异常落在哪个处理器吗？</li>
+      <li>我的错误码是否已分段、集中定义，前端能否只靠 code 决定交互？</li>
+      <li>我返回给前端的响应中是否绝对不会出现堆栈、SQL、内网地址？</li>
+      <li>我能在 10 分钟内给任意 DTO 加上校验注解并验证生效吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m2-1.html">← 上一节：分层架构设计（Controller-Service-DAO）</a>
+    <a href="s3-m2-3.html">下一节：权限认证（Spring Security / Sa-Token） →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>传统项目 AI 升级可行性评估 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段五 · 传统项目智能化升级 / 模块一 · 项目集成 AI 能力 / <strong>传统项目 AI 升级可行性评估</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段五 · 传统项目智能化升级</div>
+    <h1>传统项目 AI 升级可行性评估</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块一 · 项目集成 AI 能力</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够用<strong>业务价值、数据就绪度、技术可行性、风险合规</strong>四个维度，在 1 天内对一个传统项目给出"可做 / 试做 / 不做"的明确结论。</li>
+      <li>能够准确区分<strong>适合 AI 化的场景</strong>与看似适合、实则该用规则或自动化的场景，避免"为了 AI 而 AI"。</li>
+      <li>能够产出一份可评审的<strong>可行性评估报告</strong>：评分矩阵、证据、PoC 范围与成功/止损线。</li>
+      <li>能够估算升级的<strong>投入产出比（ROI）</strong>，用业务方听得懂的语言汇报结论。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：四维评估框架</h3>
+    <p><strong>① 业务价值</strong>：估算"频率 × 单次耗时 × 人力成本"，把收益折算成每月节省的工时或减少的错误损失。每天节省不足 1 小时、又需要大改动的场景，优先级应排后。<strong>② 数据就绪度</strong>：有没有可用数据？有多少条？结构化程度如何？是否包含个人信息、商业秘密？没有数据的场景只能靠通用模型的"常识"，质量上限很低。<strong>③ 技术可行性</strong>：用通用大模型 + 提示词能否达到可接受质量？首字延迟、并发量、单次调用成本能否满足生产要求？<strong>④ 风险与合规</strong>：出错的代价有多大、能否回退？幻觉的容忍度是多少？是否涉及《个人信息保护法》、数据出境、审计留痕要求。四维各打 1–5 分并写明证据，任何一维低于 2 分即为<strong>一票否决项</strong>。</p>
+
+    <h3>知识点 2：场景筛选——什么适合，什么不适合</h3>
+    <p><strong>适合</strong>的场景有三个共同点：输入是<strong>非结构化的文本或图片</strong>、输出有<strong>相对固定的格式</strong>、规则<strong>难以穷举枚举</strong>。典型如：工单自动分类与摘要、合同/发票要点抽取、客服首轮应答草稿、周报与经营数据解读、代码迁移与文档补写。<strong>不适合</strong>的场景：要求 100% 精确的计算（金额、税率、库存扣减）、结果不可回退的写操作、必须逐条溯源到法规条款的强合规判断、样本极少且长尾的专业领域。一个实用经验：<strong>先问"用 200 行规则代码能不能解决"</strong>——能解决的就别上大模型，规则可解释、可测试、零调用成本。</p>
+
+    <h3>知识点 3：评估产出物与 PoC 界定</h3>
+    <p>可行性评估的终点不是"分数"，而是一张<strong>PoC 卡片</strong>：候选场景、所用数据切片（多少条、从哪来、是否脱敏）、成功指标（如"字段抽取准确率 ≥ 90%"）、时间盒（通常 <strong>1–2 周</strong>）、止损线（低于多少分就放弃）。很多项目的失败不是因为模型不行，而是 PoC 没有边界——无限期调提示词却始终没有验收标准。评估报告里还要写<strong>否决清单</strong>：哪些场景经过分析确认不做、原因是什么，避免下个季度被反复重提。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：某公司客服系统的<strong>场景评分矩阵</strong>（YAML）。每个场景对四个维度打 1–5 分并附证据，权重按项目实际调整，求加权总分：</p>
+<pre><code># feasibility-matrix.yaml —— 客服系统 AI 升级候选场景评估
+weights: { business_value: 0.35, data_ready: 0.25, tech_feasible: 0.25, risk_compliance: 0.15 }
+
+scenarios:
+  - id: ticket-classify
+    name: 工单自动分类与打标
+    scores:
+      business_value:   { score: 5, evidence: "日均 800 单 × 人工 40 秒，约 8.9 人时/天" }
+      data_ready:       { score: 5, evidence: "历史工单 12 万条，已含分类标签" }
+      tech_feasible:    { score: 4, evidence: "小模型微调即可，延迟 &lt; 500ms" }
+      risk_compliance:  { score: 4, evidence: "分类错误可人工兜底，无资金影响" }
+
+  - id: refund-amount
+    name: 退款金额自动计算
+    scores:
+      business_value:   { score: 4, evidence: "财务每月核对 60 人时" }
+      data_ready:       { score: 3, evidence: "规则散落在 6 个系统，无统一文档" }
+      tech_feasible:    { score: 1, evidence: "要求分毫不差，大模型概率输出不满足" }
+      risk_compliance:  { score: 1, evidence: "多退直接资金损失，不可回滚" }
+    veto: true          # 技术可行性与风险均 &lt; 2，一票否决，改用规则引擎</code></pre>
+    <p>示例二：用 Python 算出加权总分并自动生成结论，避免"拍脑袋"：</p>
+<pre><code>def evaluate(matrix: dict) -> list:
+    result = []
+    for s in matrix["scenarios"]:
+        w, total, veto = matrix["weights"], 0.0, False
+        for dim, weight in w.items():
+            item = s["scores"][dim]
+            total += item["score"] * weight
+            veto = veto or item["score"] &lt; 2   # 任一维低于 2 分即否决
+        verdict = "否决" if veto else ("优先推进" if total &gt;= 4 else ("先做 PoC" if total &gt;= 3 else "暂缓"))
+        result.append((s["name"], round(total, 2), verdict))
+    return sorted(result, key=lambda x: -x[1])
+
+if __name__ == "__main__":
+    import yaml
+    data = yaml.safe_load(open("feasibility-matrix.yaml", encoding="utf-8"))
+    for name, score, verdict in evaluate(data):
+        print(f"{name:20s} 总分 {score}  →  {verdict}")</code></pre>
+    <div class="tip">💡 打分必须写 evidence（数据来源、抽样条数、测算过程）。没有证据的分数在评审会上一定会被挑战，这也是逼自己先去查数据、抽样本的过程。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为你熟悉的一个传统系统（OA、ERP、电商后台均可）列出 5 个候选 AI 场景，每个场景一句话描述"现在谁在做、每周花多久"。</li>
+      <li><strong>任务 2</strong>：按四维框架给 5 个场景打分，产出 feasibility-matrix.yaml，每格必须附证据；运行示例脚本得到排序与结论。</li>
+      <li><strong>任务 3</strong>：为得分最高的场景写一页 PoC 卡片：数据切片（条数与来源）、成功指标（至少 1 个质量指标 + 1 个成本/延迟指标）、时间盒、止损线。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：写 5 行以内的 ROI 估算：上线成本（开发人天 + 每月模型调用费）与收益（每月节省人时 × 人力成本），算出回本周期并向"业务方"口头汇报 3 分钟。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://www.nist.gov/itl/ai-risk-management-framework" target="_blank">NIST AI 风险管理框架（AI RMF）</a> — <span class="desc">评估"风险合规"维度的权威参照，重点看其治理与风险识别两部分。</span></li>
+      <li>📖 <a href="https://www.anthropic.com/engineering/building-effective-agents" target="_blank">Anthropic：Building Effective Agents</a> — <span class="desc">讲清什么场景需要复杂 Agent、什么场景一个提示词就够，直接支撑技术可行性判断。</span></li>
+      <li>📖 <a href="https://openai.com/api/pricing/" target="_blank">OpenAI API 定价页</a> — <span class="desc">估算单次调用成本与月度开销时的基准价格，换算成"每次几分钱"便于汇报。</span></li>
+      <li>🛠 <a href="https://aws.amazon.com/bedrock/" target="_blank">Amazon Bedrock</a> — <span class="desc">托管多模型接入，适合在 PoC 阶段快速对比多家模型而不用自建推理。</span></li>
+      <li>🛠 <a href="https://huggingface.co/models" target="_blank">Hugging Face 模型库</a> — <span class="desc">查是否有可自部署的开源模型，为"数据不能出内网"的场景做备选方案。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能不看讲义说出四维评估框架每一维要问的问题吗？</li>
+      <li>我能举出两个"看似适合 AI、实则该用规则"的场景并说明理由吗？</li>
+      <li>我给每个分数都附上了可查证的证据（数据条数、耗时、成本）吗？</li>
+      <li>我写下的 PoC 卡片有明确的成功指标、时间盒和止损线吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m5-5.html">← 上一节：实战：高并发业务系统 AI 智能化升级</a>
+    <a href="s5-m1-2.html">下一节：智能化升级方案设计（提示词 / RAG / 微调选型） →</a>
+  </div>
+
+</div>
+</body>
+</html>

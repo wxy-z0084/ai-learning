@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多模态插件组合搭建场景应用 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块三 · 多模态应用搭建 / <strong>多模态插件组合搭建场景应用</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>多模态插件组合搭建场景应用</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块三 · 多模态应用搭建</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够用<strong>插件 + 工作流</strong>的视角拆解一个多模态场景，明确每个节点的输入输出。</li>
+      <li>能够在 Coze 中组合 3 个以上插件（图片理解、图片生成、搜索、语音等）跑通一条工作流。</li>
+      <li>能够处理插件之间的<strong>数据传递</strong>：变量命名、类型匹配与结果裁剪。</li>
+      <li>能够为搭建好的场景设计<strong>降级策略</strong>，避免单个插件失败导致整条链路不可用。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：从"单点能力"到"插件流水线"</h3>
+    <p>单个插件只能完成一件事（识别一张图、搜一次网页、生成一段语音），而真实场景需要它们<strong>串联协作</strong>。Coze 的工作流正是为此设计：节点代表一次能力调用，边代表数据流向，节点的输出变量可以在后续节点中被引用。搭建前先画一张"输入 → 处理 → 输出"的草图，问自己三个问题：用户给我什么（文本/图片/音频）？中间要经过哪几次能力调用？最终返回什么形态（文字、图片、卡片）？</p>
+    <p>判断该不该用工作流的标准很简单：如果回答路径<strong>固定可枚举</strong>（例如"先识图，再搜索，再配图"），用工作流；如果回答高度开放，就交给模型自主决定调用哪个插件。</p>
+
+    <h3>知识点 2：节点间的数据传递</h3>
+    <p>数据传递是插件组合最常见的翻车点。要点有三：一是<strong>变量命名要语义化</strong>（用 <code>user_image_url</code> 而不是 <code>var1</code>），复杂工作流里这决定你能否调试得动；二是<strong>类型要对齐</strong>，识别节点输出的是文本，生成图片节点要的是提示词，中间往往需要一个"大模型节点"做转换与浓缩；三是<strong>输出要裁剪</strong>，插件常返回大段 JSON（日志、状态码、原始网页正文），把上百 KB 原文直接塞给下一节点会撑爆上下文，应先摘要、再传递。</p>
+
+    <h3>知识点 3：组合模式与降级策略</h3>
+    <p>多模态场景有几种成熟的组合模式：<strong>识图 → 搜索 → 配文</strong>（商品图识别后查资料生成介绍）、<strong>文档 → 提取 → 配音</strong>（把 PDF 要点转成语音讲解）、<strong>草图 → 生图 → 修图</strong>（手绘线稿转成品图）。每个模式都要配降级策略：生图失败就退回纯文字描述，搜索超时就仅基于识别结果作答，并在回复中明确告知用户"部分内容未能获取"。诚实的失败提示，胜过编造的结果。</p>
+    <div class="tip">💡 调试技巧：工作流先用最小插件集跑通（2 个节点），再逐步加节点。一次性搭 6 个节点，出错时你将无从定位。</div>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一是一个"拍照识花 + 生成养护卡片"工作流的<strong>节点配置草案</strong>（结构示意，可对照在 Coze 工作流编辑器中搭建）：</p>
+<pre><code>工作流：flower_card
+开始节点输入：image_url（图片）, user_question（文本，可选）
+节点1 [图片识别插件]
+  输入：image = {{start.image_url}}
+  输出：{ species, features, confidence }
+节点2 [大模型节点]
+  输入：species={{节点1.species}}, question={{start.user_question}}
+  提示词：根据花卉品种与特征，写 3 条养护要点，每条不超过 30 字
+  输出：care_tips
+节点3 [图片生成插件]
+  输入：prompt = "养护卡片插画：" + {{节点1.species}} + "，清新水彩风，竖版 3:4"
+  输出：card_image_url
+结束节点输出：care_tips, card_image_url
+</code></pre>
+    <p>示例二是节点 2 使用的<strong>提示词</strong>，演示如何把上一节点的结构化结果转成用户可读内容：</p>
+<pre><code>你是园艺助手。根据输入的花卉品种 {{species}} 与用户问题 {{user_question}} 作答：
+- 若 confidence 低于 0.6，先提醒用户"识别把握不大，仅供参考"；
+- 输出 3 条养护要点，格式：浇水：… / 光照：… / 温度：…；
+- 若用户问题为空，则按品种给出通用养护方案；
+- 全文不超过 120 字，不使用 Markdown 表格。
+</code></pre>
+    <div class="tip">💡 提示：模板里的 <code>{{变量}}</code> 会在运行时被替换成真实值。引用不存在的变量是工作流报错的头号原因，保存前逐个核对变量名。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：在纸上画出"商品图 → 识别 → 搜索资料 → 生成电商文案"的节点图，标出每个节点的输入输出变量。</li>
+      <li><strong>任务 2</strong>：在 Coze 工作流中把上面的草图搭出来并运行一次，确保返回文案与图片。</li>
+      <li><strong>任务 3</strong>：人为制造一次失败（如传入不支持的图片格式），观察报错信息，并补一段友好兜底回复。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：在工作流末尾接入语音合成节点，把养护要点朗读出来，形成"看图听讲解"的完整多模态应用。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://www.coze.cn/docs" target="_blank">Coze 官方文档</a> — <span class="desc">工作流节点、变量引用与插件市场的详细说明，搭建前必读。</span></li>
+      <li>📖 <a href="https://www.coze.cn/store/plugin" target="_blank">Coze 插件商店</a> — <span class="desc">浏览可用插件及其输入输出参数，选型时逐个查看。</span></li>
+      <li>📖 <a href="https://platform.openai.com/docs/guides/vision" target="_blank">OpenAI Vision 指南</a> — <span class="desc">理解图片理解环节的能力边界，避免设计超出模型能力的节点。</span></li>
+      <li>🛠 <a href="https://flowiseai.com" target="_blank">Flowise</a> — <span class="desc">开源可视化编排工具，可对照理解"节点 + 连线"的通用范式。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能独立画出一个多模态场景的节点图并标注数据流吗？</li>
+      <li>我搭出的工作流能否稳定复现（连续运行 3 次结果结构一致）吗？</li>
+      <li>我是否为关键插件设计了失败兜底方案？</li>
+      <li>我能向同事讲清"什么时候用工作流、什么时候让模型自主调用"吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m3-3.html">← 上一节：多模态大模型（图文理解）调用</a>
+    <a href="s1-m4-1.html">下一节：AI 结对编程工具使用（Cursor、Copilot 等） →</a>
+  </div>
+
+</div>
+</body>
+</html>

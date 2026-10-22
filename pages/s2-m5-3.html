@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docker 容器化与发布流程 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块五 · 企业级开发与部署 / <strong>Docker 容器化与发布流程</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>Docker 容器化与发布流程</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块五 · 企业级开发与部署</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够读懂并编写 <strong>Dockerfile</strong>，说明镜像分层原理并写出更小、更安全的镜像。</li>
+      <li>能够用<strong>多阶段构建</strong>与 <strong>.dockerignore</strong> 把 Python 智能体服务打包成可运行镜像。</li>
+      <li>能够用 <strong>docker compose</strong> 编排应用与依赖（向量库、Redis），实现一条命令起整套环境。</li>
+      <li>能够描述"构建 → 打 tag → 推送 → 部署 → 验证 → 回滚"的完整发布流程。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：镜像与分层——Docker 的底层逻辑</h3>
+    <p>Dockerfile 中每条指令生成一个<strong>只读层</strong>，层层叠加构成镜像；容器启动时在最上层加一个可写层。分层带来两个直接收益：一是<strong>缓存</strong>——上层没变就复用下层缓存，构建极快；二是共享——同一台机器的多个镜像共用相同基础层。因此写 Dockerfile 要按"变化频率从低到高"排列指令：先 COPY 依赖清单并安装，再 COPY 源码。反过来写（先拷代码再装依赖），每次改一行代码都会重装全部依赖。</p>
+    <p>常见坑：使用 <strong>latest</strong> 标签导致环境不可复现（务必固定 <strong>python:3.12-slim</strong> 这类具体版本）；以 root 运行应用（应创建非 root 用户）；在镜像里塞入 .env 与日志（应通过 .dockerignore 排除、运行时注入）。</p>
+
+    <h3>知识点 2：多阶段构建与镜像瘦身</h3>
+    <p>Python 项目常需要编译依赖（如某些向量库、grpc），构建工具链会让镜像膨胀数 GB。<strong>多阶段构建</strong>用两个 FROM：第一阶段（builder）安装依赖并编译，第二阶段（runtime）只从 builder <strong>COPY 产物</strong>，构建工具不会进入最终镜像。配合 <strong>python:3.12-slim</strong> 基础镜像、<strong>--no-cache-dir</strong>、<strong>.dockerignore</strong>，一个 FastAPI 智能体服务镜像通常能控制在几百 MB 以内。体积小还意味着更小的攻击面与更快的拉取速度。</p>
+
+    <h3>知识点 3：Compose 编排与发布流程</h3>
+    <p>开发与联调阶段用 <strong>docker-compose.yml</strong> 一次性拉起"应用 + Qdrant/Chroma + Redis"，团队成员不需要各自安装依赖，环境完全一致。生产发布则是<strong>流水线</strong>：CI 里执行 <strong>docker build</strong> 打上 <strong>版本号 tag</strong>（如 git commit 短哈希）→ <strong>docker push</strong> 推到镜像仓库（Harbor/ACR/Docker Hub）→ 部署平台（K8s、云主机 systemd）拉取指定 tag 启动 → 健康检查通过后切流 → 异常时<strong>回滚到上一个 tag</strong>，因为旧镜像仍在仓库中，回滚成本极低。关键点：镜像 tag 必须与代码版本一一对应，绝不允许"构建后覆盖同一 tag"。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：智能体服务的多阶段 Dockerfile：</p>
+<pre><code># ---------- Dockerfile ----------
+FROM python:3.12-slim AS builder
+WORKDIR /build
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN pip install --no-cache-dir --prefix=/install .
+
+FROM python:3.12-slim
+RUN useradd --create-home --uid 1000 appuser
+WORKDIR /app
+COPY --from=builder /install /usr/local
+COPY src ./src
+COPY configs ./configs
+USER appuser
+EXPOSE 8000
+CMD ["uvicorn", "src.agent_hub.main:app", "--host", "0.0.0.0", "--port", "8000"]
+</code></pre>
+    <p>配套的 .dockerignore 与 compose 文件（应用 + 向量库）：</p>
+<pre><code># ---------- .dockerignore ----------
+.git
+.venv
+.env
+logs/
+data/
+tests/
+__pycache__/
+*.md
+
+# ---------- docker-compose.yml ----------
+services:
+  kb-agent:
+    build: .
+    image: registry.example.com/kb-agent:${TAG:-dev}
+    env_file: .env
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      - qdrant
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+volumes:
+  qdrant_data:
+</code></pre>
+    <div class="tip">💡 提示：本地开发用 <strong>docker compose up --build</strong> 一键启动；发布用 <strong>docker build -t registry.example.com/kb-agent:$GIT_SHA . && docker push …</strong> 把 commit 哈希写进 tag，出问题时能精确回滚到任意历史版本。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为 s2-m5-1 中的 kb-agent 项目编写 Dockerfile，构建后用 <strong>docker run --env-file .env -p 8000:8000</strong> 启动，curl 健康检查接口通过。</li>
+      <li><strong>任务 2</strong>：用 <strong>docker images</strong> 记录优化前镜像体积，加入多阶段构建与 .dockerignore 后再对比，目标体积下降 30% 以上。</li>
+      <li><strong>任务 3</strong>：编写 docker-compose.yml，把应用与向量库编排起来，验证 compose down 再 up 后向量数据仍在（volume 持久化）。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：在本地 registry（如 <strong>docker run -p 5000:5000 registry:2</strong>）演练"构建 v1 → 推送 → 改代码构建 v2 → 回滚 v1"的完整流程。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://docs.docker.com" target="_blank">Docker 官方文档</a> — <span class="desc">从 Get Started 入门，再查 Dockerfile reference 与镜像存储原理。</span></li>
+      <li>📖 <a href="https://docs.docker.com/build/building/best-practices/" target="_blank">Dockerfile 最佳实践</a> — <span class="desc">多阶段构建、缓存利用、镜像体积与安全的官方建议清单。</span></li>
+      <li>📖 <a href="https://docs.docker.com/compose/" target="_blank">Docker Compose 文档</a> — <span class="desc">服务编排、volume、网络与 env_file 的用法参考。</span></li>
+      <li>📖 <a href="https://12factor.net/zh-cn/" target="_blank">The Twelve-Factor App 中文版</a> — <span class="desc">"严格分离构建与运行阶段"等原则的出处。</span></li>
+      <li>🛠 <a href="https://hub.docker.com/" target="_blank">Docker Hub</a> — <span class="desc">查找官方基础镜像（python-slim、qdrant 等），注意拉取与固定版本号。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能解释 Dockerfile 指令顺序对构建缓存的影响吗？</li>
+      <li>我能说清多阶段构建解决了什么问题、产物如何跨阶段传递吗？</li>
+      <li>我的镜像是否固定了基础镜像版本、使用了非 root 用户并排除了 .env？</li>
+      <li>发生一次坏发布时，我知道按哪几步把服务回滚到上一个版本吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m5-2.html">← 上一节：日志、监控与异常处理</a>
+    <a href="s2-m5-4.html">下一节：API 限流、成本控制与安全 →</a>
+  </div>
+
+</div>
+</body>
+</html>

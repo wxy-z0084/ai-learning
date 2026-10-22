@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>接口鉴权（JWT / OAuth2） · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块二 · FastAPI / <strong>接口鉴权（JWT / OAuth2）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>接口鉴权（JWT / OAuth2）</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块二 · FastAPI</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够区分<strong>认证（Authentication）与授权（Authorization）</strong>，说清 401 与 403 的差别。</li>
+      <li>能够解释 OAuth2 密码模式与授权码模式的适用场景，以及<strong>访问令牌与刷新令牌</strong>的分工。</li>
+      <li>能够手写 <strong>JWT 的签发与校验</strong>流程（含过期时间与签名算法），并设计成可复用依赖。</li>
+      <li>能够列出令牌安全的常见红线：密钥保管、HTTPS、过期时长、密码哈希与刷新令牌轮换。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：认证与授权，以及 OAuth2 的定位</h3>
+    <p><strong>认证</strong>回答「你是谁」，<strong>授权</strong>回答「你能做什么」。HTTP 语义：未提供凭证返回 <strong>401 Unauthorized</strong>，凭证有效但权限不足返回 <strong>403 Forbidden</strong>。<strong>OAuth2</strong>（RFC 6749）本质是一个<strong>授权协议</strong>，定义了授权码、密码、客户端凭证、隐式等模式；在前后端 API 项目里最常用的是<strong>密码模式（Resource Owner Password Credentials）</strong>：客户端提交用户名密码 → 服务器换发令牌，之后所有请求只带令牌。第三方登录（微信/GitHub 授权）则必须用<strong>授权码模式</strong>，你的服务永远拿不到用户在第三方的密码。注意 OAuth2 本身不规定令牌格式，实践中普遍搭配 <strong>JWT</strong> 作为令牌载体。</p>
+
+    <h3>知识点 2：JWT 的结构与校验</h3>
+    <p><strong>JWT（JSON Web Token, RFC 7519）</strong>由三段 Base64Url 组成：<strong>header.payload.signature</strong>。头部声明算法（如 HS256）；载荷是声明集合——<strong>sub</strong>（主体 id）、<strong>exp</strong>（过期时间）、<strong>iat</strong>（签发时间）、<strong>role</strong> 等业务声明；签名用服务端持有的<strong>密钥</strong>对前两段做 HMAC/摘要，防篡改。关键特性：<strong>签名只保证完整性，不保证机密性</strong>——payload 只是编码不是加密，任何人都能解码看到内容，所以<strong>绝不能把密码、密钥写进 JWT</strong>。校验三件事：签名是否有效（防伪造/防改内容）、exp 是否过期、iss/aud 是否符合预期。</p>
+    <p><strong>有状态 vs 无状态</strong>：JWT 校验只需本地计算，无需查库，天然横向扩展；代价是签发后<strong>无法单方面作废</strong>（直到过期），因此实践上把访问令牌有效期设短（15~30 分钟），配合<strong>刷新令牌</strong>（数天、存 httpOnly Cookie 或服务端记录）换取新访问令牌，并在需要强制下线时将刷新令牌入库拉黑/轮换。</p>
+
+    <h3>知识点 3：FastAPI 落地姿势</h3>
+    <p>标准结构：登录接口接收 OAuth2PasswordBearer 定义的表单（username/password），比对<strong>哈希后</strong>的密码（passlib/bcrypt，严禁明文或裸 MD5），用 python-jose/PyJWT 签发含 exp 的 access_token；受保护路由声明 <strong>token: str = Depends(oauth2_scheme)</strong>，再由 <strong>get_current_user</strong> 依赖解码校验并查库取用户，校验失败抛 401。OAuth2 规范要求密码模式用 <strong>application/x-www-form-urlencoded</strong> 提交（curl -d "username=..&amp;password=.."），/docs 会显示授权按钮。更细粒度的 <strong>Scope</strong> 可表达「读/写」权限，FastAPI 的 Security(..., scopes=[...]) 提供原生支持。</p>
+
+    <h3>知识点 4：安全红线清单</h3>
+    <p>① <strong>密钥</strong>放环境变量并定期轮换，长度足够（HS256 建议 ≥32 字节随机串），严禁硬编码进 git；② 算法在服务端<strong>白名单固定</strong>，绝不能信任 token 头部自带的 alg（历史上 none 算法伪造漏洞正源于此）；③ 传输强制 <strong>HTTPS</strong>；④ 密码必须<strong>加盐哈希</strong>存储；⑤ 刷新令牌一次性轮换、检测重放；⑥ 日志与错误信息里不打印令牌全文；⑦ 令牌之外还要做<strong>接口级授权</strong>检查——「拿到合法 token」不等于「能访问别人的数据」，按资源归属做二次校验（IDOR 防护）。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：完整的密码模式登录 + JWT 签发与校验依赖（依赖包：<strong>pip install "fastapi[standard]" python-jose[cryptography] passlib[bcrypt]</strong>）：</p>
+<pre><code>from datetime import datetime, timedelta, timezone
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+
+SECRET_KEY = "请替换为环境变量中的32字节以上随机串"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MIN = 30
+
+app = FastAPI()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")  # /docs 按钮指向这里
+
+# 模拟用户库：真实项目从数据库读取
+USERS = {"alice": {"id": 1, "hashed": pwd_context.hash("secret123"),
+                   "role": "admin"}}
+
+def verify_password(plain: str, hashed: str) -&gt; bool:
+    return pwd_context.verify(plain, hashed)
+
+def create_access_token(sub: str, role: str) -&gt; str:
+    payload = {"sub": sub, "role": role,
+               "exp": datetime.now(timezone.utc)
+                      + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MIN)}
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+@app.post("/token")
+def login(form: OAuth2PasswordRequestForm = Depends()):
+    user = USERS.get(form.username)
+    if not user or not verify_password(form.password, user["hashed"]):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED,
+                            detail="用户名或密码错误",
+                            headers={"WWW-Authenticate": "Bearer"})
+    return {"access_token": create_access_token(form.username,
+                                                user["role"]),
+            "token_type": "bearer"}
+
+def get_current_user(token: str = Depends(oauth2_scheme)) -&gt; dict:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if username is None or username not in USERS:
+            raise JWTError("无效主体")
+    except JWTError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED,
+                            detail="凭证无效或已过期",
+                            headers={"WWW-Authenticate": "Bearer"})
+    return {"username": username, "role": payload["role"]}
+
+@app.get("/me")
+def me(user: dict = Depends(get_current_user)):
+    return user
+</code></pre>
+    <p>示例二：调用方式（先换令牌，再带令牌访问受保护接口）：</p>
+<pre><code># 1. 换取令牌（OAuth2 密码模式要求表单编码）
+curl -X POST http://127.0.0.1:8000/token \
+  -d "username=alice&amp;password=secret123"
+
+# 返回：{"access_token": "eyJhbGciOi...", "token_type": "bearer"}
+
+# 2. 携带令牌访问
+curl http://127.0.0.1:8000/me \
+  -H "Authorization: Bearer eyJhbGciOi..."
+
+# 3. 不带/带错令牌 → 401；令牌有效但访问他人资源 → 403
+</code></pre>
+    <div class="tip">💡 提示：解码自己的 token 看看：访问 https://jwt.io 可视化解码三段内容，直观理解「payload 不加密只编码」。教学演示可用固定 SECRET_KEY，上线前务必改从环境变量读取。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：实现 /token 登录与 /me 当前用户接口，分别验证：正确凭证 200、错误密码 401、无 Authorization 头 401、篡改 payload 内容后 401。</li>
+      <li><strong>任务 2</strong>：把令牌过期时间调成 10 秒，等待过期后再请求，确认返回 401；记录响应头中的 WWW-Authenticate 字段。</li>
+      <li><strong>任务 3</strong>：在 get_current_user 基础上加角色检查依赖，实现 /admin 只允许 role=admin 访问（权限不足返回 403），并写一个校验他人资源归属的路由防止 IDOR。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：实现刷新令牌方案：/token 返回短效 access_token + 长效 refresh_token（入库记录），/refresh 接口校验后轮换（旧刷新令牌作废），试着重放旧令牌验证被拒绝。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/tutorial/security/" target="_blank">FastAPI：安全教程总览</a> — <span class="desc">从 OAuth2 到 JWT 的完整章节导航，每节可复制运行，是本节主教材。</span></li>
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/tutorial/security/oauth2-jwt/" target="_blank">FastAPI：OAuth2 + JWT</a> — <span class="desc">密码模式 + 令牌校验依赖的官方实现，与本页示例一致。</span></li>
+      <li>📖 <a href="https://datatracker.ietf.org/doc/html/rfc7519" target="_blank">RFC 7519：JSON Web Token</a> — <span class="desc">JWT 标准原文，注册声明（sub/exp/iss/aud）定义的最终依据。</span></li>
+      <li>📖 <a href="https://oauth.net/2/" target="_blank">OAuth 2.0 官方站点</a> — <span class="desc">各授权模式的适用场景与最佳实践（含令牌安全建议）。</span></li>
+      <li>📖 <a href="https://jwt.io/introduction" target="_blank">jwt.io 入门介绍</a> — <span class="desc">在线解码调试 JWT，理解三段结构与签名验证的交互式页面。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清 401 与 403、认证与授权的区别，并各举一个触发场景吗？</li>
+      <li>我能画出密码模式下「登录换令牌 → 带令牌访问 → 依赖解码校验」的完整流程吗？</li>
+      <li>我能解释 JWT 为什么不能放敏感信息、为什么签发后难以作废，以及如何用短效令牌缓解吗？</li>
+      <li>我能列出至少 5 条令牌安全红线，并检查自己的实现是否踩线吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m2-2.html">← 上一节：依赖注入与中间件</a>
+    <a href="s2-m2-4.html">下一节：流式响应（SSE / WebSocket） →</a>
+  </div>
+
+</div>
+</body>
+</html>

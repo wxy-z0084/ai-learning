@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>低代码平台核心概念与选型 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块四 · 低代码开发 / <strong>低代码平台核心概念与选型</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>低代码平台核心概念与选型</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块四 · 低代码开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够用<strong>元数据驱动</strong>这一条主线讲清低代码平台的运行原理，并区分低代码、无代码与高代码的边界。</li>
+      <li>能够从<strong>数据建模、表单、流程、页面、集成、治理</strong>六个能力面拆解一个平台，逐面评估其成熟度。</li>
+      <li>能够按选型维度（场景匹配、扩展边界、数据主权、成本模型、厂商锁定）为团队给出有依据的平台结论，并说清不适用的场景。</li>
+      <li>能够动手完成一次至少 3 个平台的对比试用，产出一页可评审的选型评分卡。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：低代码的本质是元数据驱动</h3>
+    <p>低代码平台的核心不是"拖控件"，而是<strong>元数据驱动</strong>：你在界面上配置的实体、字段、表单、流程节点，都会被平台保存成一份 JSON / DSL 描述文件（元数据），运行时由平台内置的引擎解释执行，而不是编译成你自己的代码。理解这一点会直接带来三个判断：应用能否迁移，取决于元数据能否完整导出；平台能力有没有天花板，取决于引擎内置了哪些节点类型与表达式；<strong>调试是黑盒的</strong>——报错信息往往来自引擎而非你的代码，排查问题要学会先看元数据（导出的 JSON）再看运行日志。</p>
+    <p>低代码与无代码的差别在于是否保留代码扩展点：无代码面向业务人员，只提供表单、流程、视图的配置；<strong>低代码</strong>保留表达式、脚本函数、自定义组件入口，面向"80% 标准化 + 20% 定制"的软件工程场景，也是本模块后续动手实践的基础。</p>
+
+    <h3>知识点 2：一个低代码平台的六个能力面</h3>
+    <p>评估平台时不要被演示视频带着走，按六个能力面逐项检查：<strong>① 数据建模</strong>——实体、字段类型、表间关系、行级/字段级权限，这是所有上层能力的地基；<strong>② 表单引擎</strong>——必填校验、字段联动、明细子表、条件隐藏；<strong>③ 流程引擎</strong>——审批流还是完整 BPMN，是否支持会签、或签、加签、催办、跳转；<strong>④ 页面编排</strong>——列表视图、详情页、仪表盘、响应式布局；<strong>⑤ 集成能力</strong>——开放 API、Webhook、数据库直连、消息通知；<strong>⑥ 运行与治理</strong>——开发/测试/生产多环境、版本发布与回滚、操作审计。缺任何一角，后期都会被迫用脆弱的补丁方案绕过去。</p>
+
+    <h3>知识点 3：选型维度与常见坑</h3>
+    <p>选型时至少回答五个问题：<strong>场景匹配</strong>——表单 + 审批流类（OA、报销、工单、调研）是低代码的主场，而复杂交互、算法密集、强性能要求的核心链路仍应高代码实现；<strong>扩展边界</strong>——能否写自定义前后端函数、能否引入第三方库、能否导出源码；<strong>数据主权</strong>——数据落在厂商云还是自己的数据库，能否私有化部署；<strong>成本模型</strong>——按应用数、用户数还是运行时授权计费，规模翻倍后账单是否陡增；<strong>厂商锁定</strong>——合同到期后元数据、流程定义、历史数据能否完整带走。</p>
+    <p>常见坑：<strong>用演示效果代替 PoC</strong>——真实数据量、真实权限模型下的表现才是真相；忽略万级数据列表的加载与批量导出性能；把核心交易链路整体放进无代码工具，后期既改不动又离不开；还没确认离线/内网部署需求就签了 SaaS 合同。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>选型最忌"我觉得"，下面是一份可直接粘进评审文档的 YAML 评分卡：给每个平台按维度打 1–5 分并附证据链接，权重之和为 1，加权得分最高者胜出。</p>
+<pre><code># lowcode-evaluation.yaml —— 低代码平台选型评分卡
+scenario: 报销申请 + 审批流 + 统计看板   # 先锁定要解决的场景，再评平台
+weight:                                 # 维度权重，按团队痛点分配，合计 1.0
+  scenario_fit: 0.25    # 场景匹配：能否原生支持表单/流程/看板
+  extensibility: 0.20   # 扩展性：自定义代码、API、组件库
+  data_sovereignty: 0.15 # 数据主权：私有化部署、自有数据库对接
+  cost: 0.15            # 成本：3 年 TCO（授权 + 实施 + 运维人力）
+  lock_in: 0.15         # 锁定风险：元数据/数据能否导出
+  governance: 0.10      # 治理：多环境、版本回滚、审计
+platforms:
+  - name: 平台A
+    scores: { scenario_fit: 5, extensibility: 3, data_sovereignty: 4,
+              cost: 3, lock_in: 2, governance: 4 }
+    evidence: "PoC 记录：万级数据列表首屏 1.2s，导出 5 万行报错"
+  - name: 平台B
+    scores: { scenario_fit: 4, extensibility: 5, data_sovereignty: 5,
+              cost: 4, lock_in: 4, governance: 3 }
+    evidence: "元数据可全量导出为 JSON，支持自定义 Node.js 函数"</code></pre>
+    <div class="tip">💡 权重要在打分前定好，否则容易出现"先看结果再改规则"；每个分数必须附一条可复现的证据（PoC 截图、API 文档链接、报价单页码），评审时才站得住脚。</div>
+    <p>给自定义扩展预留的判断方法：试写一个"提交后自动调用外部系统并回写状态"的小功能，记录它需要多少行代码、是否要跳出平台编辑器——这个耗时就是你未来每次定制的真实成本。</p>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：从你手头工作中挑出 3 个候选场景，逐个判定"适合低代码 / 不适合"，每个写明理由与风险点，形成一张场景清单。</li>
+      <li><strong>任务 2</strong>：注册 2 个平台的试用（如腾讯云微搭、明道云或你司采购的平台），各搭一个"报销申请"最小应用：实体 1 个、表单 2 个、审批流 1 条，记录从建模到发布每一步的耗时与卡点。</li>
+      <li><strong>任务 3</strong>：用示例中的 YAML 评分卡给 3 个平台打分（每分必须有证据），输出一页选型结论并说明被刷掉平台的关键短板。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：测试其中一个平台的"逃生能力"——导出元数据、调开放 API 读回数据、导出历史记录，评估被锁定的真实风险。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://learn.microsoft.com/zh-cn/power-apps/" target="_blank">Microsoft Power Apps 官方文档</a> — <span class="desc">看懂"画布应用 vs 模型驱动应用"两种范式与 Dataverse 数据层，是理解低代码架构的好样本。</span></li>
+      <li>📖 <a href="https://docs.mendix.com/" target="_blank">Mendix 官方文档</a> — <span class="desc">企业级低代码的能力全景图，可直接当作评估维度清单逐项对照。</span></li>
+      <li>🛠 <a href="https://cloud.tencent.com/product/weda" target="_blank">腾讯云微搭 WeDa</a> — <span class="desc">国内可直接试用的低代码平台，用它完成任务 2 的报销应用 PoC。</span></li>
+      <li>📖 <a href="https://www.thoughtworks.com/radar" target="_blank">ThoughtWorks Technology Radar</a> — <span class="desc">业界对 low-code 工具的收录与警示条目，帮助判断技术潮流与适用边界。</span></li>
+      <li>🛠 <a href="https://www.appsheet.com/" target="_blank">Google AppSheet</a> — <span class="desc">无代码路线代表，体验"业务人员直接建应用"能做到哪、做不到哪。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能用"元数据驱动"解释低代码平台的运行原理，并说明它带来的调试黑盒与迁移问题吗？</li>
+      <li>我能不看笔记列出六个能力面和五个选型维度吗？</li>
+      <li>我能明确说出至少两个<strong>不该</strong>用低代码的场景及其原因吗？</li>
+      <li>我手上有一份带证据、有权重的平台评分卡吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m3-5.html">← 上一节：AI 能力封装为业务模块（审核、摘要、生成）</a>
+    <a href="s3-m4-2.html">下一节：表单、流程、页面可视化配置 →</a>
+  </div>
+
+</div>
+</body>
+</html>

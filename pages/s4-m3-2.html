@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能体间通信与协作机制 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块三 · 多智能体开发 / <strong>智能体间通信与协作机制</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>智能体间通信与协作机制</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块三 · 多智能体开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够画出三种以上协作拓扑（链式、星型/Supervisor、层级、去中心化辩论）并说明各自适用场景。</li>
+      <li>能够设计一套<strong>结构化消息协议</strong>（JSON 信封 + schema 校验），让智能体间的传话不再靠"自由发挥"。</li>
+      <li>能够实现一个 <strong>Supervisor → Worker → Supervisor</strong> 的完整协作循环，包含停机条件与异常处理。</li>
+      <li>能够用<strong>上下文摘要</strong>控制多轮协作中的 token 增长，并解释为什么转发"全量聊天记录"是反模式。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：协作拓扑怎么选</h3>
+    <p><strong>链式（流水线）</strong>：A 的输出是 B 的输入，B 的输出给 C，如"调研→撰写→审校"。结构最简单，延迟累加，任一环节失败会阻塞全链。<strong>星型（Supervisor 模式）</strong>：一个协调者接收任务、分派给多个 Worker、收集结果再决策下一步；扩展性最好，协调者是单点且它的上下文增长最快，是整个系统的瓶颈所在。</p>
+    <p><strong>层级（Hierarchical）</strong>：Supervisor 之下还有子 Supervisor，适合"部门经理—组长—组员"式的大任务，但通信跳数增多，信息失真风险上升。<strong>去中心化（对等/辩论）</strong>：多个智能体互相可见、轮流发言，如"正方/反方/裁判"的辩论模式，适合方案择优与压力测试，缺点是轮次难以收敛，必须设最大轮数与收敛判据。<strong>黑板模式（Blackboard）</strong>：所有智能体读写一块共享工作区（共享记忆/状态），适合"各自贡献碎片、拼成整体"的任务，下一节的共享记忆就是它的落地。选择口诀：<strong>强依赖走链式，多子任务走星型，择优走辩论，拼图走黑板</strong>。</p>
+
+    <h3>知识点 2：结构化消息协议</h3>
+    <p>智能体之间"说话"的最小可靠单位是<strong>带 schema 的消息信封</strong>，而不是一段自然语言。信封固定字段：<code>task_id</code>（关联到任务图的节点）、<code>sender / receiver</code>、<code>type</code>（request / result / question / reject / done）、<code>payload</code>（业务内容，按 type 定义 schema）、<code>artifacts</code>（附件引用，如文件路径或上游产物 ID）、<code>confidence</code>（可选，供下游与裁判加权）。</p>
+    <p>为什么这么较真：LLM 输出天然不稳定，把协议解析交给代码（pydantic / jsonschema 校验），失败时能明确重试；而"请把结果用自然语言告诉下一位同事"会让信息在转述中衰减——每多一次自由转述，关键数字与约束就多一层丢失概率。<strong>原则：让 LLM 产出结构化数据，让代码负责路由与校验</strong>。另外消息要与聊天记录区分：消息是"点对点交付的工件"，聊天记录是"某个智能体的私人上下文"，不要混用。</p>
+
+    <h3>知识点 3：停机条件、异常与上下文控制</h3>
+    <p>协作循环必须有明确的<strong>停机条件</strong>（stopping criterion），否则智能体会"为聊而聊"烧钱：任务图全部节点完成、Supervisor 判定结果达标（用验收标准逐条打分）、达到最大轮数（如 10 轮）、预算上限（token/金钱）、以及人工介入终止。每条都要落到代码里，而不是指望模型自觉。</p>
+    <p>异常处理三件套：<strong>格式错误</strong>→ 把解析错误信息回喂给该智能体要求重发（最多 2 次），仍失败则上报；<strong>任务失败</strong>→ 换提示词重试或缩小任务范围；<strong>死循环</strong>→ 检测同一 task_id 重复提交次数超限强制熔断。<strong>上下文控制</strong>：Supervisor 不应携带所有 Worker 的完整对话，只保留"任务定义 + 最终结果 + 摘要"；Worker 每轮开始时收到的是精心构造的 prompt（任务 + 相关背景 + 上游产物），而不是从头回放的群聊记录。经验数值：一次多智能体会话里，<strong>70% 以上的 token 浪费来自上下文转发</strong>，这是首要优化点。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：消息信封与 schema 校验（Python + pydantic，作为所有智能体通信的"物理层"）：</p>
+<pre><code>from enum import Enum
+from typing import Optional
+from pydantic import BaseModel, ValidationError
+
+class MsgType(str, Enum):
+    request = "request"; result = "result"
+    question = "question"; reject = "reject"; done = "done"
+
+class Envelope(BaseModel):
+    task_id: str                      # 关联任务图节点，用于对账与去重
+    sender: str
+    receiver: str
+    type: MsgType
+    payload: dict                     # 业务内容，按 type 各自约定 schema
+    artifacts: list[str] = []         # 上游产物引用，避免把大文档塞进消息
+    confidence: Optional[float] = None
+
+def parse_message(raw: str) -> Envelope | str:
+    """返回 Envelope 或错误描述——把错误喂回发送方让其重发"""
+    try:
+        return Envelope.model_validate_json(raw)
+    except ValidationError as e:
+        return f"消息不符合 schema，请按以下错误修正后重发: {e.errors()}"</code></pre>
+    <p>示例二：Supervisor 循环——分派、收集、判定停机（示例用 OpenAI 兼容接口，把 base_url/api_key 换成你的模型服务即可运行）：</p>
+<pre><code>import json, os, openai
+client = openai.OpenAI(base_url=os.getenv("LLM_BASE_URL"),
+                       api_key=os.getenv("LLM_API_KEY"))
+MAX_ROUNDS = 6                       # 停机条件之一：轮数上限
+
+def chat(system: str, user: str) -> str:
+    r = client.chat.completions.create(
+        model=os.getenv("LLM_MODEL", "deepseek-chat"),
+        messages=[{"role": "system", "content": system},
+                  {"role": "user", "content": user}])
+    return r.choices[0].message.content
+
+SUP_SYS = """你是项目协调者(Supervisor)。你的职责：1) 把总目标拆给合适的工人；
+2) 收集工人结果并检查验收标准；3) 未达标则指出具体缺口并继续分派；
+4) 达标则输出最终报告。你不亲自写报告正文。
+输出 JSON：{"action": "assign" | "finish", "assign": [{"receiver": "...", "task": "...", "input": "..."}], "final_report": "..."}"""
+
+WORKERS = {
+  "researcher": "你是调研员。只输出可验证事实，每条附来源；不写建议。直接给出结果。",
+  "writer":     "你是撰稿人。只能引用输入中给你的事实，不得编造数据。输出 Markdown 报告草稿。",
+}
+
+def run_supervisor(goal: str) -> str:
+    history = {}                                    # task_id -> 最终产物摘要
+    for rnd in range(MAX_ROUNDS):
+        plan_raw = chat(SUP_SYS, f"总目标：{goal}\n已收到的产物：{json.dumps(history, ensure_ascii=False)}")
+        plan = json.loads(plan_raw)                 # 解析失败的处理见知识点3
+        if plan["action"] == "finish":
+            return plan["final_report"]
+        for item in plan["assign"]:                 # 并行分派：这里可换 asyncio 并发
+            result = chat(WORKERS[item["receiver"]],
+                          f"任务：{item['task']}\n输入：{item.get('input','')}")
+            history[item["task"]] = result[:800]    # 只留摘要，控制 Supervisor 上下文
+    raise RuntimeError("达到最大轮数仍未收敛，上报人工处理")
+
+print(run_supervisor("调研两种消息队列并写 300 字对比结论"))</code></pre>
+    <div class="tip">💡 示例里 Worker 收到的输入是 Supervisor 挑选过的"任务 + 输入"，而非完整群聊——这正是"点对点工件传递"。生产环境请给 json.loads 外面套重试（把解析错误作为新 user 消息要求重发），并把 history 换成持久化存储，方便断点续跑与审计。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为示例一扩展 Envelope：为 type=request 定义 payload 的 JSON Schema（含 task_id、requirement、acceptance 三个字段），并写 3 个非法样例验证校验器能分别拒绝。</li>
+      <li><strong>任务 2</strong>：跑通示例二的 Supervisor 循环，打印每轮的分派与产物摘要，观察第几轮收敛；把 MAX_ROUNDS 调成 1，观察熔断路径是否符合预期。</li>
+      <li><strong>任务 3</strong>：把示例改造成双 Worker 并行（researcher 与 analyst 同时领任务），用线程池或 asyncio 统计并行前后的总耗时。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：实现"死循环检测"：同一 task_id 被提交 3 次后强制改派其他 Worker 或上报人工，并在日志中记录触发证据。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://microsoft.github.io/autogen/" target="_blank">AutoGen 官方文档</a> — <span class="desc">群聊（GroupChat）、会话模式与消息传递机制的完整参考，本节协议设计的灵感来源。</span></li>
+      <li>📖 <a href="https://langchain-ai.github.io/langgraph/" target="_blank">LangGraph 官方文档</a> — <span class="desc">用图结构表达拓扑（节点=角色，边=消息流）的编排框架，Supervisor 模式有现成教程。</span></li>
+      <li>📖 <a href="https://www.crewai.com" target="_blank">CrewAI 官网</a> — <span class="desc">其 Agent 间通过 Task 产出传递上下文的机制，是"工件而非聊天记录"传递的实例。</span></li>
+      <li>📖 <a href="https://arxiv.org/abs/2308.08155" target="_blank">AutoGen 论文</a> — <span class="desc">第 4 节给出对话模式分类与两个多智能体应用案例，值得精读。</span></li>
+      <li>📖 <a href="https://docs.pydantic.dev/latest/" target="_blank">Pydantic 官方文档</a> — <span class="desc">消息 schema 校验的实现库，重点看 model_validator 与 JSON 解析。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能画出当前方案的协作拓扑图，并说出为什么选它而不是别的拓扑吗？</li>
+      <li>智能体间传递的每条消息都有 task_id、type 和 schema 吗？解析失败会走什么路径？</li>
+      <li>我的协作循环有几条停机条件？它们是写死在代码里还是指望模型自觉？</li>
+      <li>Supervisor 的上下文里装的是全量聊天记录还是"任务 + 摘要 + 产物"？能否压到一页以内？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m3-1.html">← 上一节：多智能体角色分工与任务规划</a>
+    <a href="s4-m3-3.html">下一节：编排框架（LangGraph / CrewAI / AutoGen） →</a>
+  </div>
+
+</div>
+</body>
+</html>

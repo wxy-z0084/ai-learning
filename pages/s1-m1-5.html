@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>变量、记忆与数据库功能 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块一 · Coze 平台使用 / <strong>变量、记忆与数据库功能</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>变量、记忆与数据库功能</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块一 · Coze 平台使用</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够区分会话变量、用户变量、长期记忆与数据库四种存储形态的适用场景。</li>
+      <li>能够创建并读写会话级/用户级变量，实现「记住用户偏好」类功能。</li>
+      <li>能够创建数据库表并在工作流中完成插入、查询操作。</li>
+      <li>能够为一个需要跨轮次、跨会话保持状态的 Bot 设计合理的存储方案。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：为什么需要「记忆」——模型本身是无状态的</h3>
+    <p>大模型每次推理都是<strong>无状态</strong>的：它「记得」上一轮，只是因为上一轮对话被拼进了这次的提示词窗口。一旦超出上下文长度，最早的轮次会被丢弃；用户换个会话，一切归零。要让 Bot 真正「记住」用户，就需要把关键信息<strong>持久化</strong>到模型之外的存储里，再在需要时注入提示词。扣子提供了从轻到重的四层方案：<strong>会话变量、用户变量、长期记忆（Key-Value / 数据库表）</strong>，选型看两个维度——<strong>作用域</strong>（会话内还是跨会话）和<strong>数据形态</strong>(键值对还是结构化表)。</p>
+
+    <h3>知识点 2：会话变量与用户变量</h3>
+    <p><strong>会话变量（Conversation Variable）</strong>作用域是当前会话：同一个用户关掉窗口再来，会话变量重置；适合存「本次对话进行到哪一步」「用户当前选择的筛选条件」。<strong>用户变量（User Variable）</strong>作用域是该用户在该 Bot 下的全部会话：适合存「用户名字」「常住城市」「订阅偏好」。两者都支持 <strong>String、Number、Boolean、Array、Object</strong> 等类型，可在人设提示词中直接以变量名引用（如 <code>用户名字：{{user_name}}</code>），也可在工作流里通过变量赋值节点读写。</p>
+    <p>使用要点：变量的<strong>初始化值</strong>要在创建时设好默认值，避免空值拼进提示词造成「你是 undefined」之类的低级问题；用户变量的写入要靠<strong>模型抽取</strong>——通常在工作流里加一个大模型节点，从用户消息中抽取「姓名」字段后赋值给变量，而不是指望模型自己「顺手记住」。</p>
+
+    <h3>知识点 3：数据库（Database）与长期记忆</h3>
+    <p>当数据是<strong>多行结构化记录</strong>（订单、工单、书签列表）时，键值变量就不够用了，要用扣子的<strong>数据库</strong>功能：先定义表结构（字段名、类型、是否主键），再在工作流中用<strong>数据库节点</strong>执行插入、查询、更新、删除。典型场景：用户说「帮我记下：明天下午 3 点开会」→ 工作流抽取时间与事项 → 数据库节点 INSERT；用户下次问「我明天有什么安排」→ SELECT 出来交给大模型组织语言。</p>
+    <p>还有一个轻量选项是<strong>长期记忆（Key-Value Memory）</strong>：Bot 配置页开启后，模型可自动把对话中的关键事实以键值形式存取，适合「记住用户提过的偏好」这种非结构化小数据，但可控性不如显式的数据库表。选型口诀：<em>单值偏好用用户变量，多条结构化记录用数据库，模型自动摘记用长期记忆</em>。另外注意数据安全：数据库里别存明文密码、身份证等敏感信息，上线前确认表的读写权限只授给目标工作流。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：一个「个人待办助手」的数据库表设计与工作流节点逻辑。表 <code>todos</code> 三个字段：</p>
+<pre><code>表名：todos
++----------+--------+------+----------------------------------+
+| 字段名    | 类型    | 约束  | 说明                             |
++----------+--------+------+----------------------------------+
+| id       | String | 主键  | 自动生成的待办 ID                |
+| content  | String | 必填  | 待办事项，如「明天15点开周会」    |
+| due_time | String | 选填  | 到期时间，ISO 格式 2025-01-01T15:00 |
++----------+--------+------+----------------------------------+
+
+# 工作流节点编排
+[开始] user_input: string
+  ↓
+[大模型] 抽取节点：从 user_input 中抽取 content 与 due_time，
+         无时间则留空；输出 JSON：{"content": "...", "due_time": "..."}
+  ↓
+[条件分支] due_time 非空？
+  ├─ 是 → [数据库] INSERT INTO todos(id, content, due_time)
+  │        id = 代码节点生成的时间戳；返回 inserted=True
+  └─ 否 → [数据库] INSERT INTO todos(id, content)
+  ↓
+[大模型] 生成回复：确认已记录，复述内容与时间
+[结束] reply: string
+</code></pre>
+    <p>示例二：在人设提示词中注入用户变量，让 Bot 每次开口都带上用户画像。在「人设与回复逻辑」开头加一段：</p>
+<pre><code># 用户信息（系统自动注入）
+- 称呼：{{user_name}}（为空时用「您」）
+- 常住城市：{{user_city}}（为空时不主动提及）
+- 订阅偏好：{{user_prefs}}
+
+# 规则
+涉及天气、通勤建议时优先结合 {{user_city}}；未提供的信息不要臆测。
+</code></pre>
+    <div class="tip">💡 提示：变量一定要设默认值（如 user_name 默认「访客」），并像上面示例那样在规则里写明「为空时怎么办」。否则变量缺失时提示词里会留下空洞，模型可能开始瞎编用户信息。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：创建一个会话变量 <code>selected_category</code> 和一个用户变量 <code>user_name</code>，让用户在对话中自报姓名，验证关掉会话重开后 user_name 还在、selected_category 被重置。</li>
+      <li><strong>任务 2</strong>：建一张 <code>todos</code> 表并接进工作流，实现「记待办 → 查待办」双向流程，至少插入 3 条、查询 1 次并截图数据库记录。</li>
+      <li><strong>任务 3</strong>：把用户变量注入人设提示词，验证 Bot 能在合适时机称呼用户名字，且变量为空时不产生幻觉。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：为「订机票」场景设计一份存储选型文档：哪些信息存会话变量、哪些存用户变量、哪些落数据库，各写一条理由。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://www.coze.cn/docs" target="_blank">扣子官方文档 · 变量与数据库</a> — <span class="desc">会话变量、用户变量、数据库节点的字段级说明。</span></li>
+      <li>📖 <a href="https://www.coze.cn/open" target="_blank">扣子开放平台</a> — <span class="desc">通过 API 读写 Bot 数据库与变量，做外部系统联动时使用。</span></li>
+      <li>📖 <a href="https://platform.openai.com/docs/guides/prompt-engineering" target="_blank">OpenAI 提示词工程指南</a> — <span class="desc">理解「把外部信息注入提示词」这一模式的通用方法。</span></li>
+      <li>📖 <a href="https://www.sqlite.org/website.html" target="_blank">SQLite 官网</a> — <span class="desc">补一补关系型数据库基础，扣子的数据库概念与之同源。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清会话变量与用户变量在生命周期上的区别吗？</li>
+      <li>我能判断一个数据需求该用变量、长期记忆还是数据库吗？</li>
+      <li>我能独立完成「大模型抽取 → 数据库节点写入」的完整链路吗？</li>
+      <li>我检查过注入提示词的变量都有默认值与空值处理规则吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m1-4.html">← 上一节：知识库（文档/表格）配置</a>
+    <a href="s1-m1-6.html">下一节：发布到 Web / 微信 / 飞书等渠道 →</a>
+  </div>
+
+</div>
+</body>
+</html>

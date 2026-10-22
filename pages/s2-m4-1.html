@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>核心组件：Model / Prompt / Chain · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块四 · LangChain / <strong>核心组件：Model / Prompt / Chain</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>核心组件：Model / Prompt / Chain</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块四 · LangChain</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说清 LangChain 0.2 的包结构（core / 主包 / community / partner 包）以及各层职责。</li>
+      <li>能够熟练配置和调用 <strong>ChatOpenAI</strong> 等聊天模型，理解 temperature、max_tokens、timeout 等关键参数的影响。</li>
+      <li>能够使用 <strong>ChatPromptTemplate</strong> 构建含系统指令、变量占位、少量示例（few-shot）的提示词模板。</li>
+      <li>能够把"提示词模板 → 模型 → 输出解析器"用 <code>|</code> 管道组合成可复用的 Chain，并解析出结构化结果。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：LangChain 0.2 的包结构</h3>
+    <p>LangChain 0.2 起做了清晰拆分：<strong><code>langchain-core</code></strong> 定义最基础的抽象——聊天模型、提示词模板、输出解析器、Runnable 接口，不含任何具体厂商实现；<strong><code>langchain</code></strong> 主包提供链（Chain）、代理（Agent）等编排逻辑；<strong><code>langchain-community</code></strong> 收纳社区维护的第三方集成；<strong><code>langchain-openai</code>、<code>langchain-anthropic</code></strong> 等是各厂商的 partner 包，独立发版、依赖更干净。安装时按需组合：<code>pip install langchain langchain-openai</code>。</p>
+    <p>0.2 时代要建立的新认知：<strong>聊天模型（ChatModel）是一等公民</strong>，输入输出都是"消息"而非纯文本；旧教程里的 <code>LLMChain</code>、<code>OpenAI()</code> 文本补全类用法正在退役，官方推荐用 LCEL 管道（<code>prompt | model | parser</code>）替代——这也是下一模块 LCEL 的铺垫。</p>
+
+    <h3>知识点 2：模型层——ChatOpenAI 的配置要点</h3>
+    <p>所有聊天模型都接收消息列表、返回 AIMessage。<code>ChatOpenAI</code> 的常用参数：<strong>model</strong>（模型名，如 gpt-4o-mini）；<strong>temperature</strong>（0～2，越低越稳定，事实问答建议 0～0.3，创作风格类任务可 0.7+）；<strong>max_tokens</strong>（单次回复上限，防止超长烧钱）；<strong>timeout / max_retries</strong>（生产必配：网络超时与自动重试）；<strong>api_key</strong> 与 <strong>base_url</strong>（可指向 OpenAI 兼容网关）。接入国产模型或本地模型的常见姿势：用 Ollama、vLLM、各厂商的 OpenAI 兼容端点，只改 <code>base_url</code> 即可，代码零改动。</p>
+    <p>消息分三种角色：<strong>SystemMessage</strong>（设定身份与规则，权重最高）、<strong>HumanMessage</strong>（用户输入）、<strong>AIMessage</strong>（模型历史回复）。调用方式：<code>model.invoke([messages])</code> 同步调用，<code>model.ainvoke()</code> 异步调用，<code>model.stream()</code> 流式输出。</p>
+
+    <h3>知识点 3：提示词模板——把"调提示词"变成"改配置"</h3>
+    <p><code>ChatPromptTemplate</code> 由多条消息模板组成，用 <code>{变量名}</code> 做占位。设计要点：① 系统消息里写清角色、任务边界、输出格式要求；② 用户消息只放动态内容；③ 需要注入 few-shot 示例时，用 <code>MessagesPlaceholder</code> 预留消息列表位置；④ 需要复用不同供应商时，模板与模型解耦是 LangChain 最大的工程价值——<strong>换模型不改提示词，改提示词不动业务代码</strong>。渲染时传入与占位符一一对应的字典，漏传变量会直接抛出错误（这是好事，能提前暴露问题）。</p>
+
+    <h3>知识点 4：输出解析器与 Chain 组合</h3>
+    <p>模型返回的是消息对象，要变成业务可用的字符串或结构体，需要<strong>输出解析器</strong>：<code>StrOutputParser</code> 取出文本；<code>JsonOutputParser</code> 解析 JSON（配合提示词注入格式说明）；<strong><code>with_structured_output(Pydantic模型)</code></strong> 直接得到类型安全的对象，最推荐。把模板、模型、解析器用 <code>|</code> 串起来就是一个 <strong>Runnable</strong> 链，可直接 <code>.invoke()</code>、<code>.batch()</code>、<code>.stream()</code>。注意：管道里每一步的输出类型必须是下一步期望的输入类型，这是 LCEL 的核心约定。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：模板 + 模型 + 解析器的标准三段式链，支持流式输出：</p>
+<pre><code># pip install langchain langchain-openai
+import os
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+model = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.2,
+    max_tokens=1024,
+    timeout=30,
+    max_retries=2,                       # 生产环境必备：失败自动重试
+    api_key=os.environ["OPENAI_API_KEY"],
+)
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "你是一名资深{role}。回答要求：先给结论，再给要点，全程使用中文。"),
+    ("human", "{question}"),
+])
+
+chain = prompt | model | StrOutputParser()   # LCEL 管道：每步输出即下一步输入
+
+answer = chain.invoke({"role": "后端架构师", "question": "FastAPI 的依赖注入该怎么理解？"})
+print(answer)
+
+# 流式输出：逐段拿到回答，适合做打字机效果
+for token in chain.stream({"role": "后端架构师", "question": "什么是数据库连接池？"}):
+    print(token, end="", flush=True)</code></pre>
+
+    <p>示例二：用 Pydantic 做结构化输出，让模型直接返回类型安全的对象：</p>
+<pre><code>from pydantic import BaseModel, Field
+
+class IssueAnalysis(BaseModel):
+    severity: str = Field(description="严重级别：high/mid/low")
+    category: str = Field(description="问题类别：性能/安全/可用性/其他")
+    suggestion: str = Field(description="改进建议，一句话，不超过 50 字")
+
+structured_model = model.with_structured_output(IssueAnalysis)
+result = structured_model.invoke(
+    "线上日志出现大量 connection timeout，接口 P99 从 200ms 涨到 3s，请分析。"
+)
+print(result.severity, result.category, result.suggestion)
+# 直接得到 Pydantic 对象，无需手写 JSON 解析和校验逻辑</code></pre>
+
+    <div class="tip">💡 提示：temperature=0 也不等于完全确定性（服务端可能仍有波动），重要的自动化任务要在解析层做字段校验；切换供应商模型时优先只改 base_url 与 model 名，跑一遍评测集再上线。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：封装一个可复用的 <code>build_chat_model(model_name, temperature)</code> 工厂函数，统一处理 api_key、timeout、重试，并用它跑通一次调用。</li>
+      <li><strong>任务 2</strong>：写一个"周报生成器"提示词模板：系统消息规定角色与输出格式，用户消息占位符接收本周工作要点列表，用 Chain 生成结构化周报。</li>
+      <li><strong>任务 3</strong>：用 <code>with_structured_output</code> + Pydantic 实现"从一段用户反馈中提取{情绪, 主题, 优先级}"，批量处理 10 条真实反馈。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：把示例一的 base_url 指向一个 OpenAI 兼容的本地服务（如 Ollama），验证除配置外代码零改动，体会抽象层的价值。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://python.langchain.com/v0.2/docs/concepts/" target="_blank">LangChain v0.2 核心概念</a> — <span class="desc">模型、提示词、Runnable 等抽象的官方解释，入门第一篇，务必通读。</span></li>
+      <li>📖 <a href="https://python.langchain.com/v0.2/docs/integrations/chat/openai/" target="_blank">ChatOpenAI 集成文档</a> — <span class="desc">全部构造参数、调用方式与流式用法的参考页。</span></li>
+      <li>📖 <a href="https://python.langchain.com/v0.2/docs/how_to/" target="_blank">How-to 指南索引</a> — <span class="desc">按任务查做法：模板、解析器、结构化输出、流式、异步全覆盖。</span></li>
+      <li>📖 <a href="https://platform.openai.com/docs/guides/text-generation" target="_blank">OpenAI 文本生成官方指南</a> — <span class="desc">理解 temperature、token 计费与提示词最佳实践的底层依据。</span></li>
+      <li>📖 <a href="https://api.python.langchain.com/en/latest/" target="_blank">LangChain API Reference</a> — <span class="desc">查类和方法签名的权威出处，写自定义组件时随手翻。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清 langchain-core 与 langchain、community 包的分工吗？</li>
+      <li>我能独立写出"ChatPromptTemplate + ChatOpenAI + 输出解析器"的完整管道并跑通吗？</li>
+      <li>我能解释 temperature、max_tokens、timeout 分别影响什么，并为生产环境选好默认值吗？</li>
+      <li>我能用 with_structured_output 从一段自由文本中稳定提取出 Pydantic 结构化字段吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m3-5.html">← 上一节：RAG 效果评估与优化</a>
+    <a href="s2-m4-2.html">下一节：Agent 与 Tool（工具调用） →</a>
+  </div>
+
+</div>
+</body>
+</html>

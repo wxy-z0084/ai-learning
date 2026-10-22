@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>异步编程（asyncio）与并发处理 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块一 · Python 全栈 / <strong>异步编程（asyncio）与并发处理</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>异步编程（asyncio）与并发处理</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块一 · Python 全栈</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说清<strong>并发（Concurrency）与并行（Parallelism）</strong>的区别，判断一个任务该用 asyncio、线程还是进程。</li>
+      <li>能够使用 <strong>async / await</strong> 定义协程，并用 asyncio.gather、create_task 并发调度多个 I/O 任务。</li>
+      <li>能够识别并消除<strong>事件循环阻塞</strong>（同步耗时调用、CPU 密集计算），会用 to_thread / ProcessPoolExecutor 把阻塞工作移出事件循环。</li>
+      <li>能够读懂 FastAPI 中异步路由的写法，理解为什么「全链路 async 才有收益」。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：协程、事件循环与 async/await</h3>
+    <p><strong>协程（coroutine）</strong>是可以在执行中途挂起、让出控制权再恢复的函数，由 <strong>async def</strong> 定义，用 <strong>await</strong> 等待一个可等待对象（另一个协程、Future、Task）。所有协程都运行在<strong>事件循环（event loop）</strong>这一个线程上：遇到 await 的 I/O 就登记回调、去执行别的协程，I/O 完成后被唤醒继续。因此 asyncio 适合<strong>高并发 I/O</strong>（同时请求几百个接口、等模型推理返回），而不适合 CPU 密集计算——后者会独占循环，让所有协程一起卡住。</p>
+    <p>常见坑：<strong>await 只能写在 async def 里</strong>；同步函数里不能 await；一个未 await 的协程会产生「coroutine was never awaited」警告且什么也不执行。</p>
+
+    <h3>知识点 2：并发调度：gather、create_task 与超时控制</h3>
+    <p><strong>asyncio.gather(*coros)</strong> 并发跑多个协程并按传入顺序收集结果，任一抛异常默认立即传播；<strong>asyncio.create_task(coro)</strong> 把协程包装成 Task 立刻调度，适合"先启动、稍后再取结果"的场景。<strong>asyncio.wait_for(coro, timeout=10)</strong> 给单个任务加超时，超时抛 TimeoutError；Python 3.11+ 还可用 <strong>asyncio.timeout()</strong> 上下文管理器统一罩住一段逻辑。批量调用大模型时，通常再用 <strong>Semaphore(n)</strong> 限制同时在途请求数，避免触发限流。</p>
+
+    <h3>知识点 3：异步迭代、队列与异步上下文管理器</h3>
+    <p>异步世界有成对的语法：<strong>async for</strong> 配合 __aiter__（如 httpx 流式响应、Redis pub/sub），<strong>async with</strong> 配合 __aenter__ / __aexit__（如 async with httpx.AsyncClient() as client）。<strong>asyncio.Queue</strong> 是生产者-消费者模型的核心：一个协程把任务 put 进队列，多个 worker 协程 get 出来并发处理，天然形成<strong>限速与削峰</strong>，实现并发批量推理时非常好用。</p>
+
+    <h3>知识点 4：线程池与进程池——同步代码的出路</h3>
+    <p>遇到无法改成异步的阻塞库（旧 SDK、同步数据库驱动、time.sleep），有三条路：用 <strong>asyncio.to_thread(fn, args)</strong>（3.9+）把调用丢进默认线程池；用 <strong>loop.run_in_executor(executor, fn)</strong> 指定自定义 ThreadPoolExecutor；CPU 密集任务则用 <strong>ProcessPoolExecutor</strong> 绕过 GIL 真正多核并行。原则：<strong>事件循环里只放 I/O 等待，重活一律外包</strong>。另外要记住线程不共享协程的上下文（contextvars 需要显式复制），线程间共享状态必须加锁。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：并发请求多个接口并统计总耗时——顺序执行 3 个 1 秒的请求要 3 秒，并发执行约 1 秒：</p>
+<pre><code>import asyncio
+import httpx
+
+async def fetch(client: httpx.AsyncClient, url: str) -> tuple[str, int]:
+    resp = await client.get(url)
+    return url, resp.status_code
+
+async def main() -> None:
+    urls = [
+        "https://httpbin.org/delay/1",
+        "https://httpbin.org/status/200",
+        "https://httpbin.org/status/404",
+    ]
+    async with httpx.AsyncClient(timeout=10) as client:
+        # gather 保序返回；return_exceptions=True 让单个失败不拖垮整体
+        results = await asyncio.gather(
+            *(fetch(client, u) for u in urls),
+            return_exceptions=True,
+        )
+    for item in results:
+        print(item)
+
+asyncio.run(main())
+</code></pre>
+    <p>示例二：用 Semaphore 限流 + Queue 生产者-消费者做批量任务，这是「批量喂给模型/接口」的标准骨架：</p>
+<pre><code>import asyncio
+
+async def worker(name: str, sem: asyncio.Semaphore, queue: asyncio.Queue):
+    while True:
+        item = await queue.get()          # 队列空时挂起，不占 CPU
+        if item is None:                  # 毒丸信号：通知退出
+            queue.task_done()
+            break
+        async with sem:                   # 同时最多 size 个在途
+            await asyncio.sleep(0.5)      # 模拟一次推理/请求
+            print(f"{name} 处理完 {item}")
+        queue.task_done()
+
+async def main():
+    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    sem = asyncio.Semaphore(5)
+    workers = [asyncio.create_task(worker(f"w{i}", sem, queue))
+               for i in range(8)]
+    for i in range(30):
+        await queue.put(i)
+    await queue.join()                    # 等所有任务被消费完
+    for _ in workers:
+        await queue.put(None)
+    await asyncio.gather(*workers)
+
+asyncio.run(main())
+</code></pre>
+    <div class="tip">💡 提示：调试 asyncio 出问题时先问三件事——有没有 await 漏了？事件循环里有没有混入阻塞调用（requests、time.sleep、同步 DB）？有没有用同一个 client/连接在多个协程间共享不当状态？</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：写脚本分别用「for 循环顺序 await」和「asyncio.gather 并发」请求同一个接口 10 次，用 time.perf_counter 打印两种方式的总耗时并对比。</li>
+      <li><strong>任务 2</strong>：给任务 1 加上 <strong>asyncio.Semaphore(3)</strong> 限流与 <strong>asyncio.wait_for(..., timeout=5)</strong> 超时，验证限流生效、超时任务能被优雅处理（return_exceptions=True）。</li>
+      <li><strong>任务 3</strong>：用 asyncio.Queue 实现一个 4 worker 的批量处理器，输入 100 个待处理项，其中混入会抛异常的项，保证单个失败不影响其余任务完成。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：写一个 CPU 密集函数（如大矩阵乘法），比较直接 await、asyncio.to_thread、ProcessPoolExecutor 三种方式的耗时，写下你观察到的原因。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://docs.python.org/zh-cn/3/library/asyncio.html" target="_blank">asyncio 标准库文档（中文）</a> — <span class="desc">官方「协程」教程和 API 索引，gather/wait_for/Queue 的语义以此为准。</span></li>
+      <li>📖 <a href="https://docs.python.org/zh-cn/3/library/asyncio-task.html" target="_blank">asyncio 任务并发文档</a> — <span class="desc">create_task、超时、取消、TaskGroup 的完整说明，取消传播规则必须读。</span></li>
+      <li>📖 <a href="https://docs.python.org/zh-cn/3/library/concurrent.futures.html" target="_blank">concurrent.futures 文档</a> — <span class="desc">ThreadPoolExecutor / ProcessPoolExecutor 的用法与 submit、as_completed 写法。</span></li>
+      <li>📖 <a href="https://www.python-httpx.org/" target="_blank">httpx 官方文档</a> — <span class="desc">同时支持同步与异步的 HTTP 客户端，是替换 requests 做异步请求的首选。</span></li>
+      <li>📖 <a href="https://fastapi.tiangolo.com/zh/async/" target="_blank">FastAPI：异步与并发</a> — <span class="desc">讲清「什么时候写 async def、什么时候写 def」，学 FastAPI 前必读。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能用自己的话说清 asyncio 为什么解决 I/O 并发却不解决 CPU 计算慢的问题吗？</li>
+      <li>我能解释在 FastAPI 路由里调用阻塞的 requests 库会带来什么后果，以及两种修复方式吗？</li>
+      <li>我能不查资料写出「并发 + 限流 + 超时 + 异常隔离」四件套的代码骨架吗？</li>
+      <li>我能为一个批量调用大模型的场景，在 asyncio、线程池、进程池之间做出有理由的选择吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m1-1.html">← 上一节：Python 语法进阶与常用标准库</a>
+    <a href="s2-m1-3.html">下一节：包管理与工程化项目结构 →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实战：企业知识库问答智能体 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块五 · 企业级开发与部署 / <strong>实战：企业知识库问答智能体</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>实战：企业知识库问答智能体</h1>
+    <div class="meta"><span class="time-chip">预计 1.5 天</span>模块五 · 企业级开发与部署</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够独立搭建一套 <strong>RAG</strong> 知识库问答服务：文档加载、切分、向量化、检索、生成全流程。</li>
+      <li>能够针对企业文档特点选择合理的<strong>切分策略与检索参数</strong>，并解释其对效果的影响。</li>
+      <li>能够通过引用溯源、拒答策略与<strong>评测集</strong>控制幻觉、量化回答质量。</li>
+      <li>能够把该服务按模块五的工程规范（配置、日志、限流、Docker）打包为可部署的生产级应用。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：RAG 全流程拆解</h3>
+    <p><strong>RAG（检索增强生成）</strong>解决大模型不知道"你公司内部的事"以及会编造的问题。流程分离线与在线两段：<strong>离线索引</strong>——加载文档（PDF/Word/Markdown）→ 切分成 chunk → 用 embedding 模型转成向量 → 写入向量库；<strong>在线问答</strong>——把用户问题转向量 → 在向量库检索 top-k 相关 chunk → 拼进提示词 → 模型生成带引用的答案。相比微调，RAG 更新知识只需重建索引、成本低、可溯源，是企业问答的默认方案。</p>
+    <p>切分是效果的隐形开关：<strong>chunk 太大</strong>会稀释相关性并浪费上下文，<strong>太小</strong>会切断语义。常用 300-800 字符、带 10-20% 重叠，并<strong>保留标题层级</strong>（把标题路径拼进 chunk 元数据）；对制度类文档按条款切，对 FAQ 按问答对切。</p>
+
+    <h3>知识点 2：检索质量与提示词设计</h3>
+    <p>默认的向量检索常有短板：口语化问题与书面文档用词不匹配。改进手段包括<strong>混合检索</strong>（向量 + BM25 关键词）、<strong>元数据过滤</strong>（限定部门、生效日期）、<strong>重排序</strong>（用 rerank 模型对 top-20 精排出 top-4）。提示词侧要做三件事：明确角色与边界（<strong>仅依据资料回答，资料不足就说不知道</strong>）、要求<strong>输出引用编号</strong>、要求答案结构化（结论 + 依据 + 建议动作）。</p>
+
+    <h3>知识点 3：评测、幻觉控制与上线</h3>
+    <p>改 prompt 或换模型后不能凭感觉，要建一个 <strong>golden 集</strong>：30-50 个真实问题 + 标准答案要点，自动统计<strong>检索命中率</strong>（正确文档是否进 top-k）与<strong>答案要点覆盖率</strong>，区分"检索问题"与"生成问题"。幻觉控制组合拳：提示词约束 + 强制引用 + 答案后置校验（检查引用编号是否真实存在于检索结果中）+ 高风险问题拒答。上线时结合模块五所学：FastAPI 暴露接口、JSON 日志记录 question/topk/trace_id、令牌桶限流、Docker 部署。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：离线索引（切分 + 入库）：</p>
+<pre><code># scripts/build_index.py
+from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_chroma import Chroma
+from langchain_openai import OpenAIEmbeddings
+
+loader = DirectoryLoader("./docs", glob="**/*.md", loader_cls=TextLoader)
+docs = loader.load()
+
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=600, chunk_overlap=100,
+    separators=["\n## ", "\n### ", "\n", "。"]
+)
+chunks = splitter.split_documents(docs)
+
+vectorstore = Chroma.from_documents(
+    chunks,
+    embedding=OpenAIEmbeddings(model="text-embedding-3-small"),
+    persist_directory="./data/chroma",
+)
+print(f"入库完成：{len(chunks)} 个片段，来源 {len(docs)} 篇文档")
+</code></pre>
+    <p>示例二：在线问答（检索 + 带引用生成）：</p>
+<pre><code># src/agent_hub/rag.py
+from langchain_chroma import Chroma
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+
+retriever = Chroma(
+    persist_directory="./data/chroma",
+    embedding_function=OpenAIEmbeddings(model="text-embedding-3-small"),
+).as_retriever(search_kwargs={"k": 4})
+
+PROMPT = ChatPromptTemplate.from_template("""你是企业内部知识库问答助手。
+规则：
+1. 只能依据下面提供的资料回答，禁止编造；
+2. 资料不足以回答时，明确回复"资料中未找到"；
+3. 答案末尾用 [1][2] 标注引用的资料编号。
+
+资料：
+{context}
+
+问题：{question}""")
+
+
+def answer(question: str) -&gt; str:
+    docs = retriever.invoke(question)
+    context = "\n\n".join(
+        f"[{i + 1}] 来源：{d.metadata.get('source', '未知')}\n{d.page_content}"
+        for i, d in enumerate(docs)
+    )
+    chain = PROMPT | ChatOpenAI(model="deepseek-chat", temperature=0)
+    return chain.invoke({"context": context, "question": question}).content
+</code></pre>
+    <div class="tip">💡 提示：知识库更新不要全量重建——按文档粒度记录内容哈希，变更的文档才重新切分入库；问题先做一次"改写"（补全指代、口语转书面）再检索，命中率通常明显提升。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：准备 10 篇你熟悉领域的 Markdown 文档，完成索引构建，并在不同 chunk_size（300/600/1000）下对比检索命中效果。</li>
+      <li><strong>任务 2</strong>：实现带引用与拒答策略的问答函数，构造 3 个知识库外的问题，验证模型回答"资料中未找到"而非编造。</li>
+      <li><strong>任务 3</strong>：编写 20 个问题的评测脚本，输出检索命中率与要点覆盖率两列指标，作为后续迭代基线。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：用 FastAPI 包装为服务，接入 JSON 日志与令牌桶限流，写出 Dockerfile 完成容器化部署。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://python.langchain.com/docs/tutorials/rag/" target="_blank">LangChain 官方 RAG 教程</a> — <span class="desc">官方端到端教程，对照本节示例查漏补缺。</span></li>
+      <li>📖 <a href="https://python.langchain.com/docs/" target="_blank">LangChain 官方文档</a> — <span class="desc">加载器、切分器、向量库与检索器的 API 参考。</span></li>
+      <li>📖 <a href="https://qdrant.tech/documentation/" target="_blank">Qdrant 官方文档</a> — <span class="desc">生产级向量库，重点看过滤、混合检索与持久化部署。</span></li>
+      <li>📖 <a href="https://github.com/openai/tiktoken" target="_blank">tiktoken</a> — <span class="desc">快速统计 token 数，用于成本核算与上下文长度控制。</span></li>
+      <li>📖 <a href="https://arxiv.org/abs/2005.11401" target="_blank">RAG 原始论文（arXiv）</a> — <span class="desc">了解检索增强生成的动机与实验设计，半天读摘要与方法节。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能画出 RAG 离线索引与在线问答两条链路的流程图吗？</li>
+      <li>我能解释 chunk 大小如何影响检索质量，并说出我当前文档的最佳参数吗？</li>
+      <li>我的答案是否带引用编号，知识库外的问题是否会被正确拒答？</li>
+      <li>我是否有一个可重复运行的评测集与基线分数？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m5-4.html">← 上一节：API 限流、成本控制与安全</a>
+    <a href="s3-m1-1.html">下一节：Java 语法进阶与集合、多线程 →</a>
+  </div>
+
+</div>
+</body>
+</html>

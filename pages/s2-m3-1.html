@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文档加载与切分策略 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块三 · RAG（检索增强生成）/ <strong>文档加载与切分策略</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>文档加载与切分策略</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块三 · RAG（检索增强生成）</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够使用文档加载器把 PDF、Markdown、Word、网页等格式统一加载为 <strong>Document</strong> 对象，并说清 <code>page_content</code> 与 <code>metadata</code> 各自的作用。</li>
+      <li>能够根据业务场景选择合适的切分策略（固定长度、递归字符、按结构切分），并解释 chunk 大小与重叠对检索质量的影响。</li>
+      <li>能够为每个 chunk 保留来源、页码等元数据，为后续的引用溯源和元数据过滤检索打好基础。</li>
+      <li>能够诊断"切太碎丢上下文、切太大检索不准"两类典型问题，并给出对应的调整方案。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：从原始文件到 Document 对象</h3>
+    <p>RAG 的第一步不是调模型，而是<strong>把散落的资料变成模型能处理的文本</strong>。文档加载器（Loader）负责格式适配：PDF 抽取文本层、Markdown 保留标题结构、网页剥离标签、Word 解析段落与表格。LangChain 为常见格式提供了统一的加载器，输出都是 <strong>Document</strong> 对象——它只有两个核心字段：<code>page_content</code> 存正文文本，<code>metadata</code> 存来源文件名、页码、标题路径等信息。</p>
+    <p>常见坑：① 扫描版 PDF 没有文本层，加载出来是空字符串，必须先 OCR（如 pytesseract 或多模态模型）；② 中文文件常见的 GBK 编码要用 <code>encoding="utf-8"</code> 参数显式指定；③ 几百 MB 的大文件不要一次性读进内存，按页或按段流式处理；④ 表格、图片中的信息纯文本加载会丢失，需要专门的解析库（如 Unstructured、Camelot）先转成文本或 Markdown 表格。</p>
+
+    <h3>知识点 2：为什么要切分，常见切分策略有哪些</h3>
+    <p>Embedding 模型对输入长度有限制（很多模型单条文本上限 512 token），检索也是以 chunk 为最小单位进行相似度匹配，生成时再把命中的若干 chunk 拼进提示词。因此<strong>切分（Splitting）直接决定了检索的粒度和答案的质量</strong>。</p>
+    <p>常用策略：① <strong>固定长度切分</strong>——按字符数硬切，实现最简单，但容易把一句话切成两半；② <strong>递归字符切分（RecursiveCharacterTextSplitter）</strong>——LangChain 默认推荐，先按 <code>\n\n</code> 分段，段落超限再按 <code>\n</code> 分行，再按句号、逗号逐级细分，尽量在自然边界断开，中文场景要显式传入中文分隔符列表；③ <strong>按结构切分</strong>——Markdown 按标题层级、Python 按函数、法律文书按条款切分，语义最完整；④ <strong>语义切分</strong>——计算相邻句子的嵌入相似度，在相似度骤降处断开，效果好但计算成本高。</p>
+
+    <h3>知识点 3：chunk 大小与重叠怎么选</h3>
+    <p>经验值：中文场景 chunk 大多落在 <strong>256～1000 token</strong> 之间，重叠（overlap）取 chunk 大小的 10%～20%。chunk 越小，定位越精确、噪声越少，但单个 chunk 携带的上下文也越少，答案容易片面；chunk 越大，上下文越完整，但相似度会被稀释、召回变差，还占用宝贵的上下文窗口。重叠的作用是防止关键信息恰好被切在边界上而"两头都缺"。</p>
+    <p>进阶方案是 <strong>父子块（small-to-big）</strong>：用小 chunk（如 400 字）做检索、提高命中率，命中后返回它的父块（如 1500 字）给大模型生成，兼顾"检得准"和"答得全"。</p>
+
+    <h3>知识点 4：元数据是引用溯源的地基</h3>
+    <p>生成的答案要能标注"来自哪份文档第几页"，靠的就是切分时保留的 <strong>metadata</strong>。<code>source</code>、<code>page</code>、<code>title</code>、<code>updated_at</code> 这些字段既能用于前端展示引用，也能用于检索时的<strong>元数据过滤</strong>（例如只在"2024 年之后的合同"里检索）。很多切分器支持保留原文起始位置（如 <code>add_start_index=True</code>），可以建立 chunk 到原文的精确映射。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>下面的示例先用递归字符切分器处理一份中文文本，并演示针对中文调整分隔符、设置重叠：</p>
+<pre><code># pip install langchain langchain-text-splitters
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+text = open("产品手册.txt", encoding="utf-8").read()
+
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=500,        # 每个 chunk 约 500 字
+    chunk_overlap=100,     # 相邻 chunk 重叠 100 字，避免关键句被切断
+    separators=["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""],
+    add_start_index=True,  # 记录 chunk 在原文中的起始位置
+)
+chunks = splitter.create_documents([text], metadatas=[{"source": "产品手册.txt"}])
+
+print(f"共切出 {len(chunks)} 个 chunk")
+for c in chunks[:3]:
+    print(c.metadata, c.page_content[:50], "...")</code></pre>
+
+    <p>加载 PDF 并保留页码，随后按 Markdown 标题结构切分：</p>
+<pre><code># pip install pypdf
+from langchain_community.document_loaders import PyPDFLoader, MarkdownHeaderTextSplitter
+
+# 1) PDF：每个页面一个 Document，metadata 自带页码
+docs = PyPDFLoader("技术白皮书.pdf").load()
+print(len(docs), "页，第 1 页前 80 字：", docs[0].page_content[:80])
+
+# 2) Markdown：按标题层级切分，metadata 记录标题路径
+headers = [("#", "h1"), ("##", "h2"), ("###", "h3")]
+md_splitter = MarkdownHeaderTextSplitter(headers, strip_headers=False)
+md_docs = md_splitter.split_text(open("README.md", encoding="utf-8").read())
+print(md_docs[0].metadata)   # 例如 {'h1': '快速开始', 'h2': '安装'}</code></pre>
+
+    <div class="tip">💡 提示：切分没有万能参数。建议先用 500/100 起步，拿 10～20 个真实问题做检索测试，再根据"命中片段是否完整回答问题"来调大或调小 chunk_size。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：选一份你工作中的真实文档（PDF 或 Markdown），加载并打印每个 Document 的前 80 字和 metadata，确认页码、来源信息完整无乱码。</li>
+      <li><strong>任务 2</strong>：用 chunk_size=500、chunk_overlap=100 切分该文档，统计 chunk 数量和长度分布（最短、最长、平均），确认没有空 chunk 和超长 chunk。</li>
+      <li><strong>任务 3</strong>：对比实验——分别用 chunk_size=200 和 1500 各切一版，针对同一份资料提 3 个问题，人工判断哪种切分给出的片段更容易回答问题，把结论写成 3 句话。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：实现父子块切分：父块 1500 字、子块 400 字，检索命中子块时返回对应父块，简单验证"小块检索、大块生成"的效果差异。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://python.langchain.com/docs/modules/data_connection/document_loaders/" target="_blank">LangChain Document Loaders 官方文档</a> — <span class="desc">查"我的文件格式该用哪个加载器"的第一站，覆盖 PDF、Office、网页、数据库等上百种数据源。</span></li>
+      <li>📖 <a href="https://python.langchain.com/docs/modules/data_connection/document_transformers/" target="_blank">LangChain Text Splitters 官方文档</a> — <span class="desc">各种切分器的原理与参数说明，建议通读 Recursive Character 一节。</span></li>
+      <li>📖 <a href="https://unstructured.io/" target="_blank">Unstructured 官方网站</a> — <span class="desc">处理复杂 PDF（表格、图片、多栏排版）的主流开源库，LangChain 集成完善。</span></li>
+      <li>📖 <a href="https://pypi.org/project/pypdf/" target="_blank">pypdf（PyPI）</a> — <span class="desc">轻量 PDF 解析库，PyPDFLoader 的底层依赖，适合无文本层之外的常规 PDF。</span></li>
+      <li>🛠 <a href="https://huggingface.co/docs/transformers/index" target="_blank">Hugging Face Transformers 文档</a> — <span class="desc">理解 token 与模型输入上限，帮助你把 chunk_size 换算成 token 数。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能不看资料解释"为什么要切分文档"以及 chunk、embedding、检索三者的关系吗？</li>
+      <li>我能在 10 分钟内把一份 PDF 加载、切分并打印出带页码的 chunk 吗？</li>
+      <li>我能根据检索结果判断 chunk_size 是偏大还是偏小，并说出调整方向吗？</li>
+      <li>我切出的每个 chunk 都带上了可用于引用溯源和过滤的元数据吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m2-5.html">← 上一节：接口测试（Swagger）与部署（Uvicorn/Docker）</a>
+    <a href="s2-m3-2.html">下一节：Embedding 向量化原理 →</a>
+  </div>
+
+</div>
+</body>
+</html>

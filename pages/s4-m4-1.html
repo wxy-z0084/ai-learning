@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>存量系统 AI 升级需求分析与评估 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块四 · 企业级项目智能化升级 / <strong>存量系统 AI 升级需求分析与评估</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>存量系统 AI 升级需求分析与评估</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块四 · 企业级项目智能化升级</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够使用业务价值 × 技术可行性双维度矩阵，从一堆"想上 AI"的诉求中筛出真正值得做的候选场景。</li>
+      <li>能够对一个存量系统完成技术尽调：摸清架构、数据、接口与团队现状，输出风险清单。</li>
+      <li>能够撰写一份让业务方和老板都看得懂的《AI 升级可行性评估报告》，并给出量化的成功指标。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：为什么存量系统升级比从零做 AI 难</h3>
+    <p>新系统可以从第一天就围绕 AI 设计数据流和交互；而<strong>存量系统</strong>（也叫遗留系统）是按"人操作、流程确定、结构化数据"的时代建的。它有三个典型特征：<strong>文档缺失或过时</strong>、<strong>技术栈陈旧</strong>、<strong>变更代价高</strong>。给它加 AI 能力，本质上是在飞行中换引擎，所以第一步不是写代码，而是搞清楚"哪里可以安全地动刀"。</p>
+    <p>常见的坑：业务方一句"加个智能助手"背后可能藏着五个完全不同的需求（问答、填单、审核、推荐、预测），如果不拆开，后面一定会返工。</p>
+
+    <h3>知识点 2：需求拆解与场景筛选矩阵</h3>
+    <p>把模糊诉求拆成<strong>可被 AI 替代或增强的具体动作</strong>，标准问法是："这个环节里，人每天在重复做什么判断/什么生成？"。例如客服系统里"智能升级"可拆为：工单自动分类（分类任务）、相似问题推荐（检索任务）、回复草稿生成（生成任务）、投诉升级预警（预测任务）。</p>
+    <p>筛选时画一个二维矩阵：<strong>纵轴是业务价值</strong>（省了多少人力、提升多少转化、降低多少差错，尽量换算成钱或工时），<strong>横轴是技术可行性</strong>（数据是否齐备、质量如何、容错空间多大、现有系统是否支持接入）。优先做"高价值 + 高可行"的 quick win，用它的成功去换后面"高价值 + 低可行"项目的预算。</p>
+
+    <h3>知识点 3：技术尽调与成功指标</h3>
+    <p>对候选场景做技术尽调，至少回答五个问题：数据在哪里、量级多大、标注有没有；线上接口是否支持<strong>异步调用</strong>与<strong>超时兜底</strong>；AI 输出错了会有什么后果（能否回滚、能否人工复核）；推理延迟要求多少；成本预算（Token 费用 / GPU 费用）是多少。</p>
+    <p>成功指标必须<strong>可量化、可采集</strong>，写成"上线后 X 周内，工单首次响应时间从 4 小时降到 30 分钟，且人工改写率低于 20%"，而不是"提升效率"。没有基线数据就先花一周埋点测量，这是很多人省略却致命的一步。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>下面用一个打分表把"拍脑袋"变成"可比较"。给每个候选场景按 1-5 分打分，加权求和后排序：</p>
+<pre><code># 场景筛选打分脚本（Python，可直接运行）
+scenes = [
+    {"name": "工单自动分类",     "value": 4, "feasibility": 5, "data_ready": 5, "risk": 2},
+    {"name": "回复草稿生成",     "value": 5, "feasibility": 3, "data_ready": 3, "risk": 3},
+    {"name": "投诉升级预警",     "value": 5, "feasibility": 2, "data_ready": 2, "risk": 4},
+    {"name": "知识库自动摘要",   "value": 3, "feasibility": 4, "data_ready": 4, "risk": 1},
+]
+weights = {"value": 0.35, "feasibility": 0.30, "data_ready": 0.20, "risk": -0.15}
+
+for s in scenes:
+    s["score"] = round(sum(s[k] * w for k, w in weights.items()), 2)
+
+for s in sorted(scenes, key=lambda x: -x["score"]):
+    print(f'{s["score"]:>6}  {s["name"]}')
+</code></pre>
+    <p>输出会按得分从高到低排序，通常"工单自动分类"这种<strong>数据成熟、错误可容忍</strong>的场景会排在前面，而"投诉升级预警"因为数据少、错判代价大而垫底——这正是我们想要的结论。</p>
+    <div class="tip">💡 提示：打分表里给"风险"设负权重是关键——AI 项目死于低估风险的比死于技术不行的多。把打分结果连同打分理由一起贴进报告，评审时几乎不会再有人质疑排序。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：选一个你熟悉的真实系统（OA、电商后台、客服系统均可），列出它的 5 个业务环节，判断每个环节"人每天在重复做什么判断/生成"。</li>
+      <li><strong>任务 2</strong>：从任务 1 中挑出 4 个候选 AI 场景，套用本节打分表排序，写出每个场景的打分理由（每条不少于 30 字）。</li>
+      <li><strong>任务 3</strong>：为排名最高的场景写出 3 个可量化的成功指标，注明每个指标的数据从哪里采集（埋点、日志表还是人工统计）。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：给排名第二的场景做一次 30 分钟的技术尽调，列出前 3 条风险及对应的缓解方案。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://martinfowler.com/articles/" target="_blank">Martin Fowler — Articles</a> — <span class="desc">重构与演进式架构的经典文章，做存量系统改造前必读</span></li>
+      <li>📖 <a href="https://12factor.net/zh-cn/" target="_blank">The Twelve-Factor App（中文版）</a> — <span class="desc">用 12 条原则快速判断老系统离"可被 AI 集成"还差多远</span></li>
+      <li>📖 <a href="https://cloud.google.com/architecture/framework" target="_blank">Google Cloud Architecture Framework</a> — <span class="desc">官方给出的评估维度清单，可直接抄成尽调检查表</span></li>
+      <li>📖 <a href="https://platform.openai.com/docs/guides/evaluation" target="_blank">OpenAI Evaluation 指南</a> — <span class="desc">如何为 AI 能力设定评估指标与基线，对应本节的"成功指标"</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能把"加个 AI"这种模糊需求拆成至少 3 个可评估的具体场景吗？</li>
+      <li>我能解释清楚一个候选场景"为什么值得做"和"为什么现在能做"吗？</li>
+      <li>我的成功指标是否可量化、可采集，并且写明了基线数据？</li>
+      <li>我能否在 15 分钟内向非技术的业务方讲明白评估结论？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m3-5.html">← 上一节：多智能体冲突处理与结果汇总</a>
+    <a href="s4-m4-2.html">下一节：AI 能力嵌入现有业务流程的方案设计 →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>缓存（Redis）、任务调度（Quartz）· AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块二 · 企业级单体项目开发 / <strong>缓存（Redis）、任务调度（Quartz）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>缓存（Redis）、任务调度（Quartz）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块二 · 企业级单体项目开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>学完本节后，你能够判断哪些数据适合进缓存，并说出本地缓存与 Redis 分布式缓存的适用场景。</li>
+      <li>你能够使用 Spring Cache 注解（@Cacheable / @CacheEvict）为查询接口加缓存，并解释其失效与序列化配置。</li>
+      <li>你能够针对缓存<strong>穿透、击穿、雪崩</strong>三类问题给出具体的防护方案。</li>
+      <li>你能够用 Quartz 配置定时任务，并说明单机 @Scheduled 与集群 Quartz 的选型区别。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：Redis 缓存使用与 Spring Cache 抽象</h3>
+    <p>缓存用于让<strong>读多写少、计算昂贵或远端</strong>的数据靠近应用：热点商品详情、字典表、配置项、频繁聚合的统计结果。选型上，单机且允许短暂不一致可用 Caffeine 等本地缓存；多实例部署必须用 <strong>Redis</strong> 这类分布式缓存，否则每个实例各存一份，内存翻倍且互相不一致。</p>
+    <p>Spring 提供了缓存抽象：<strong>@Cacheable</strong>（命中则不执行方法）、@CachePut（总是执行并更新缓存）、@CacheEvict（删除缓存），配合 CacheManager + RedisTemplate 即可无侵入接入。但要注意几个坑：<strong>同类内部方法互调不走代理，注解不生效</strong>；默认 JDK 序列化产生乱码，通常改为 JSON 的 GenericJackson2JsonRedisSerializer；@Cacheable 的 key 要包含关键入参（SpEL 如 #id），否则不同参数互相覆盖。</p>
+
+    <h3>知识点 2：穿透、击穿、雪崩与一致性</h3>
+    <p><strong>穿透</strong>指查询一个一定不存在的数据，请求绕过缓存直达数据库：对策是缓存空值（短 TTL）或用布隆过滤器前置拦截。<strong>击穿</strong>指某个热 key 过期瞬间大量并发打库：对策是互斥锁重建（只允许一个线程回源）或逻辑过期（不设物理 TTL，value 里带过期时间，过期后异步刷新）。<strong>雪崩</strong>指大量 key 同时失效：给 TTL 加随机抖动、多级缓存、限流兜底。缓存与数据库一致性一般采用<strong>先更新数据库、再删除缓存</strong>，写多读少时可加"延迟双删"或订阅 binlog（如 Canal）异步失效。Redis 本身要规划好内存淘汰策略（常用 allkeys-lru）与 key 命名规范（业务:模块:id），警惕大 key 与慢查询。</p>
+
+    <h3>知识点 3：任务调度 Quartz 与集群防重</h3>
+    <p>定时任务分两档：简单的周期任务用 Spring 的 <strong>@Scheduled</strong>（cron 表达式）即可，但它是<strong>单机执行</strong>，多实例部署时会重复跑；需要可视化管理、动态调整触发时间、集群高可用时用 <strong>Quartz</strong>。Quartz 的核心概念是 Job（任务做什么）、JobDetail（任务定义）、Trigger（何时触发，SimpleTrigger 或 CronTrigger）、Scheduler（调度器）。Quartz 集群模式把触发器信息存到数据库（提供 MySQL 建表脚本），通过<strong>数据库行锁保证同一时刻只有一个实例执行同一个任务</strong>。任务内部要遵守"幂等"原则：无论重复执行几次结果一致，用唯一业务键 + 状态判断兜底。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：Spring Boot 整合 Redis + Spring Cache，application.yml 配置与带缓存的查询服务：</p>
+<pre><code>spring:
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      timeout: 2s
+      lettuce:
+        pool: {max-active: 16, max-idle: 8, min-idle: 2}
+  cache:
+    type: redis
+    redis:
+      time-to-live: 10m   # 默认过期 10 分钟，可按注解单独指定
+
+// 开启缓存
+@SpringBootApplication
+@EnableCaching
+public class MallApplication { }
+
+@Service
+@RequiredArgsConstructor
+public class GoodsService {
+    private final GoodsMapper goodsMapper;
+
+    // key 里带上 id；查不到也会缓存空值 60 秒，防止穿透
+    @Cacheable(cacheNames = "goods", key = "#id", unless = "#result == null")
+    public Goods detail(Long id) {
+        return goodsMapper.selectById(id);
+    }
+
+    // 更新商品后删除对应缓存
+    @CacheEvict(cacheNames = "goods", key = "#dto.id")
+    public void update(GoodsUpdateDTO dto) {
+        goodsMapper.updateById(convert(dto));
+    }
+}
+</code></pre>
+    <p>示例二：Quartz 集群任务定义。任务类每次执行都可能被另一实例抢占，因此逻辑必须幂等：</p>
+<pre><code>// 任务实现：Job 由 Quartz 实例化，依赖用静态持有或 JobFactory 注入
+@Slf4j
+@Component
+public class OrderTimeoutJob implements Job {
+    @Autowired private OrderService orderService;
+
+    @Override
+    public void execute(JobExecutionContext ctx) {
+        String bizKey = ctx.getJobDetail().getKey().getName();
+        log.info("[超时关单] 开始 bizKey={} time={}", bizKey, LocalDateTime.now());
+        // 幂等：只处理状态为"待支付"且创建超过 30 分钟的订单
+        int closed = orderService.closeTimeoutOrders(Duration.ofMinutes(30));
+        log.info("[超时关单] 关闭 {} 笔", closed);
+    }
+}
+
+// 注册：cron 每 5 分钟一次；集群配置见 quartz.properties
+@Configuration
+public class QuartzConfig {
+    @Bean
+    public JobDetail timeoutJobDetail() {
+        return JobBuilder.newJob(OrderTimeoutJob.class)
+                .withIdentity("orderTimeoutJob", "order")
+                .storeDurably()          // 没有触发器时也保留任务
+                .build();
+    }
+
+    @Bean
+    public Trigger timeoutJobTrigger() {
+        return TriggerBuilder.newTrigger()
+                .forJob(timeoutJobDetail())
+                .withSchedule(CronScheduleBuilder.cronSchedule("0 */5 * * * ?")
+                        .withMisfireHandlingInstructionDoNothing())  // 错过的执行不补跑
+                .build();
+    }
+}
+</code></pre>
+    <div class="tip">💡 提示：排查缓存问题时先用 redis-cli 的 OBJECT ENCODING 和 TTL 看看 key 的真实形态；排查定时任务重复执行时，先确认是不是多实例部署却仍用 @Scheduled。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为项目中的字典表查询加上 @Cacheable，改造更新接口加 @CacheEvict，用 redis-cli 验证 key 命名、TTL 和 JSON 序列化结果。</li>
+      <li><strong>任务 2</strong>：写一个压测脚本（如 ab 或 JMeter）对比加缓存前后接口的 QPS 与数据库 CPU 变化，记录数字。</li>
+      <li><strong>任务 3</strong>：实现"缓存空值防穿透"：查询不存在的 id 时缓存空对象 60 秒，验证第二次请求不再打到数据库。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：注册一个 Quartz 任务（如每小时清理过期数据），加上 quartz.properties 配置数据库集群模式，并说明为什么任务方法要幂等。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://redis.io/docs" target="_blank">Redis 官方文档</a> — <span class="desc">数据结构、持久化、内存与集群的权威资料，按需查阅</span></li>
+      <li>📖 <a href="https://spring.io/guides/gs/caching/" target="_blank">Spring Guide：Caching Data with Spring</a> — <span class="desc">官方动手教程，快速跑通 @Cacheable + Redis</span></li>
+      <li>📖 <a href="https://www.quartz-scheduler.org/documentation/" target="_blank">Quartz 官方文档</a> — <span class="desc">Job/Trigger 配置、cron 语法与集群部署的完整说明</span></li>
+      <li>📖 <a href="https://spring.io/projects/spring-data-redis" target="_blank">Spring Data Redis</a> — <span class="desc">RedisTemplate、序列化与连接池配置的官方参考</span></li>
+      <li>📖 <a href="https://www.xuxueli.com/xxl-job/" target="_blank">XXL-JOB</a> — <span class="desc">国内常用的分布式任务调度平台，可作为 Quartz 之外的可视化替代方案</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清穿透、击穿、雪崩的区别，并各给出一个可落地的方案吗？</li>
+      <li>我知道 @Cacheable 为什么在同类内部调用时会失效，以及如何绕过吗？</li>
+      <li>我的缓存 key 命名、TTL 策略、序列化方式是否有明确规范？</li>
+      <li>我的定时任务在多实例部署下会不会重复执行？集群方案是否已验证？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m2-3.html">← 上一节：权限认证（Spring Security / Sa-Token）</a>
+    <a href="s3-m2-5.html">下一节：单元测试与接口文档（Knife4j） →</a>
+  </div>
+
+</div>
+</body>
+</html>

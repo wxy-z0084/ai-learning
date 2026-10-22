@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpringMVC 与 RESTful 开发 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块一 · Java / SpringBoot / <strong>SpringMVC 与 RESTful 开发</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>SpringMVC 与 RESTful 开发</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块一 · Java / SpringBoot</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够描述一次 HTTP 请求从 <strong>DispatcherServlet</strong> 到 Controller 再到响应返回的完整流程。</li>
+      <li>能够熟练使用 <strong>@RestController、@RequestMapping、@GetMapping、@PathVariable、@RequestBody</strong> 等注解开发接口。</li>
+      <li>能够按 RESTful 风格设计资源路径与 HTTP 方法，并返回语义正确的<strong>状态码</strong>。</li>
+      <li>能够用 <strong>@Valid</strong> 完成参数校验，并用统一异常处理输出规范的错误响应体。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：SpringMVC 请求处理流程</h3>
+    <p><strong>DispatcherServlet</strong> 是前端控制器：请求进来后，它把 URL 交给 <strong>HandlerMapping</strong> 找到对应的 Controller 方法（Handler），再通过 <strong>HandlerAdapter</strong> 调用方法；方法返回的对象经 <strong>MessageConverter</strong>（默认 Jackson）序列化为 JSON，写回响应。理解这条链的价值在于排查问题有章法：404 说明 HandlerMapping 没匹配上（检查路径与方法），415/406 说明消息转换器不匹配（检查 Content-Type 与依赖），参数绑定失败是类型转换问题（常见于字符串转枚举、日期格式）。</p>
+    <p>参数绑定要点：<strong>@PathVariable</strong> 接路径变量、<strong>@RequestParam</strong> 接查询参数（可用 defaultValue 与 required 控制）、<strong>@RequestBody</strong> 接 JSON 请求体（依赖 Jackson）、<strong>@RequestHeader</strong> 接头信息。Controller 应当薄：只做参数绑定、校验与编排，业务逻辑下沉到 Service。</p>
+
+    <h3>知识点 2：RESTful 设计与状态码</h3>
+    <p>REST 的核心是<strong>把 HTTP 动词当作对资源的操作语义</strong>：GET 查询（安全、幂等）、POST 创建、PUT 整体替换（幂等）、PATCH 局部更新、DELETE 删除（幂等）。路径用<strong>名词复数</strong>表达资源，层级表达从属关系，如 <strong>/api/v1/tickets/{id}/comments</strong>；版本号放路径前缀便于演进。状态码要如实表达结果：<strong>200</strong> 成功、<strong>201</strong> 创建（配合 Location 头）、<strong>204</strong> 删除成功无返回体、<strong>400</strong> 参数错误、<strong>401</strong> 未认证、<strong>403</strong> 无权限、<strong>404</strong> 资源不存在、<strong>409</strong> 冲突、<strong>500</strong> 服务端异常。错误响应建议统一结构（code/message/requestId），前端与联调都会感谢你。</p>
+
+    <h3>知识点 3：参数校验与全局异常处理</h3>
+    <p>永远不要相信外部输入。用 <strong>Bean Validation</strong> 注解（@NotBlank、@Size、@Min、@Pattern）标注 DTO 字段，在入口加 <strong>@Valid</strong> 触发校验；校验失败会抛 MethodArgumentNotValidException。再用 <strong>@RestControllerAdvice</strong> 定义全局异常处理器：把业务异常映射为语义化的 4xx、未知异常映射为 500 并记录日志，<strong>绝不把堆栈暴露给调用方</strong>。这样 Controller 中不再出现 try-catch 样板代码。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：一个规范的工单 RESTful Controller：</p>
+<pre><code>@RestController
+@RequestMapping("/api/v1/tickets")
+public class TicketController {
+
+    private final TicketService ticketService;
+
+    public TicketController(TicketService ticketService) {
+        this.ticketService = ticketService;
+    }
+
+    @PostMapping
+    public ResponseEntity&lt;TicketVO&gt; create(@Valid @RequestBody CreateTicketReq req) {
+        TicketVO vo = ticketService.create(req);
+        return ResponseEntity
+                .created(URI.create("/api/v1/tickets/" + vo.id()))
+                .body(vo);
+    }
+
+    @GetMapping("/{id}")
+    public TicketVO detail(@PathVariable long id) {
+        return ticketService.getById(id);
+    }
+
+    @GetMapping
+    public PageResult&lt;TicketVO&gt; list(@RequestParam(defaultValue = "1") int page,
+                                     @RequestParam(defaultValue = "10") int size) {
+        return ticketService.page(page, size);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable long id) {
+        ticketService.delete(id);
+    }
+}
+</code></pre>
+    <p>示例二：DTO 校验与全局异常处理，让错误响应也符合规范：</p>
+<pre><code>public record CreateTicketReq(
+        @NotBlank(message = "标题不能为空") @Size(max = 100) String title,
+        @NotBlank(message = "描述不能为空") String description) {
+}
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity&lt;ApiError&gt; handleValidation(MethodArgumentNotValidException ex) {
+        String msg = ex.getBindingResult().getFieldErrors().stream()
+                .map(f -&gt; f.getField() + ": " + f.getDefaultMessage())
+                .collect(Collectors.joining("; "));
+        return ResponseEntity.badRequest().body(new ApiError(400, msg));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity&lt;ApiError&gt; handleBadRequest(IllegalArgumentException ex) {
+        return ResponseEntity.badRequest().body(new ApiError(400, ex.getMessage()));
+    }
+}
+</code></pre>
+    <div class="tip">💡 提示：用 <strong>curl -i</strong> 或 IDEA 的 HTTP Client 检查返回的状态码与响应头是否符合语义（如 201 带 Location）；联调前先用 Spring Boot 的 OpenAPI 依赖生成接口文档，可以大幅减少沟通成本。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：基于 Spring Initializr 创建工程，实现工单的增删改查四个接口，用 curl 验证每个接口的状态码与响应体。</li>
+      <li><strong>任务 2</strong>：为请求 DTO 增加 Bean Validation 校验，故意提交空标题，观察 400 响应与错误信息格式。</li>
+      <li><strong>任务 3</strong>：实现 @RestControllerAdvice 全局异常处理器，覆盖参数校验、业务异常与未知异常三类，确保 500 不泄露堆栈。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：为列表接口加入分页参数校验（page ≥ 1、1 ≤ size ≤ 100）与统一 PageResult 结构，并写出对应的接口文档。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://docs.spring.io/spring-framework/reference/web.html" target="_blank">Spring 官方文档：Web MVC 框架</a> — <span class="desc">DispatcherServlet、注解控制器与异常处理的完整参考。</span></li>
+      <li>📖 <a href="https://spring.io/projects/spring-framework" target="_blank">Spring Framework 官网</a> — <span class="desc">版本特性与上手入口。</span></li>
+      <li>📖 <a href="https://restfulapi.net/" target="_blank">restfulapi.net</a> — <span class="desc">REST 设计的系统化指南，含状态码、分页、HATEOAS 等约定。</span></li>
+      <li>📖 <a href="https://jakarta.ee/specifications/bean-validation/" target="_blank">Bean Validation 规范</a> — <span class="desc">@Valid 与校验注解背后的标准，附常用注解清单。</span></li>
+      <li>🛠 <a href="https://swagger.io/specification/" target="_blank">OpenAPI 规范</a> — <span class="desc">接口文档标准，配合 springdoc 可自动生成在线文档。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能画出请求经 DispatcherServlet 到返回 JSON 的流程图吗？</li>
+      <li>我能说出 @PathVariable、@RequestParam、@RequestBody 的区别与适用场景吗？</li>
+      <li>给一个业务场景，我能设计出符合 REST 语义的 URL 与状态码吗？</li>
+      <li>我的接口是否有统一的错误响应结构，500 是否会泄露堆栈？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m1-2.html">← 上一节：Spring IoC 与 AOP 原理</a>
+    <a href="s3-m1-4.html">下一节：MyBatis / JPA 数据访问 →</a>
+  </div>
+
+</div>
+</body>
+</html>

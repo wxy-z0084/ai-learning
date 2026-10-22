@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>低代码与自定义代码扩展结合 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块四 · 低代码开发 / <strong>低代码与自定义代码扩展结合</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>低代码与自定义代码扩展结合</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块四 · 低代码开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够盘点一个平台提供的<strong>扩展点类型</strong>（前端组件、脚本函数、后端逻辑、API 连接器、插件包），并判断各该用哪个。</li>
+      <li>能够写出符合规范的自定义前端校验/计算函数与<strong>后端扩展函数</strong>，处理异常、超时与平台沙箱限制。</li>
+      <li>能够用 FastAPI / Spring Boot 自建服务，通过 <strong>OpenAPI + Webhook</strong> 与低代码应用双向集成并完成鉴权。</li>
+      <li>能够制定扩展代码的<strong>版本管理与升级纪律</strong>，保证平台升级后自定义部分不被冲掉。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：扩展点分五类，先选对位置再写代码</h3>
+    <p>自定义代码进入低代码平台有五条标准通道：<strong>① 前端组件</strong>——平台渲染不了的图表、地图、富文本编辑器，封装成自定义组件挂回页面；<strong>② 前端脚本</strong>——表单事件里的校验、联动、格式化逻辑（通常是受限 JS 运行时）；<strong>③ 后端函数</strong>——平台后端可执行的自定义逻辑（Java/Node/Python 函数），用于复杂计算、批量操作；<strong>④ API 连接器</strong>——把外部 REST 服务注册为平台可调用的"动作"，表单按钮、流程节点直接引用；<strong>⑤ 插件/扩展包</strong>——可安装、可版本化的整包扩展，多用于重复部署到多个环境。选择原则：<strong>能用配置解决就别写脚本，能在前端做的校验就别占后端资源，涉及数据一致性与权限的逻辑必须放后端</strong>。</p>
+
+    <h3>知识点 2：写扩展代码必须遵守的四条纪律</h3>
+    <p>第一，<strong>不要修改平台内核文件</strong>——所有官方升级都会覆盖你的改动；只通过文档承诺的扩展点写代码，并把扩展代码存进独立的 Git 仓库，平台里只放引用。第二，<strong>尊重沙箱与运行时限制</strong>——前端脚本通常禁用网络请求与 DOM 操作、有执行时长上限，后端函数有超时（常见 5–30 秒）与依赖白名单，重计算要改异步任务。第三，<strong>显式处理错误</strong>——扩展函数抛出的异常会中断表单或流程，必须返回结构化的错误码与用户可读的提示，不能让平台界面弹出堆栈。第四，<strong>保持契约稳定</strong>——字段名、接口入参就是你和平台之间的契约，改动要走版本号与兼容期，否则线上表单会突然报错。常见坑：把密钥硬编码在前端脚本里（应放平台的密钥配置或后端）；在流程节点里同步调用不稳定的外部接口导致整个流程卡死（应加重试与超时兜底）。</p>
+
+    <h3>知识点 3：与自研服务集成的标准姿势</h3>
+    <p>真实项目里，低代码往往是"门面"，核心算法、AI 能力、遗留系统仍在自研服务里。集成分两个方向：<strong>平台调外部</strong>——把自研服务的 OpenAPI 描述导入平台生成连接器，动作可绑定到按钮与流程节点，鉴权用平台的连接凭据（Header Token）统一管理；<strong>外部调平台</strong>——平台提供 Webhook/回调地址（提交成功、审批结束等事件），自研系统订阅后触发后续动作，注意<strong>签名校验</strong>（防伪造回调）与<strong>重试幂等</strong>（回调可能重复送达）。两条通道都要配好超时、重试与日志，出问题时先用平台的调用日志确认是谁没响应。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：表单"提交前"的自定义前端脚本（受限 JS 环境，平台命名大同小异）。校验发票号、按明细汇总金额、超预算时拦截并给出可读提示：</p>
+<pre><code>// 表单提交前置校验 —— 绑定到 onSubmit 事件
+function beforeSubmit(formData, reject) {
+  var items = formData.items || [];
+  if (items.length === 0) {
+    return reject({ invoice_no: "请至少填写一行报销明细" });
+  }
+
+  // 明细金额汇总（平台通常提供 decimal 工具避免浮点误差）
+  var total = items.reduce(function (sum, it) {
+    return sum + Number(it.money || 0);
+  }, 0);
+  formData.amount = Math.round(total * 100) / 100;
+
+  if (formData.amount &gt; 5000 &amp;&amp; !formData.managerApproved) {
+    return reject({ amount: "超过 5000 元，请先上传部门经理签字件" });
+  }
+
+  if (!/^[0-9]{8,20}$/.test(formData.invoice_no || "")) {
+    return reject({ invoice_no: "发票号须为 8–20 位数字" });
+  }
+  return formData;  // 返回修改后的数据继续提交
+}</code></pre>
+    <p>示例二：自研侧用 FastAPI 暴露一个"发票查验"服务，供低代码平台以连接器方式调用；返回结构化错误码，便于平台侧展示提示：</p>
+<pre><code>from fastapi import FastAPI, Header, HTTPException
+from pydantic import BaseModel
+
+app = FastAPI(title="expense-extensions")
+
+class InvoiceCheckReq(BaseModel):
+    invoice_no: str
+    amount: float
+
+@app.post("/api/invoice/check")
+def check_invoice(req: InvoiceCheckReq,
+                  x_api_token: str = Header(...)):
+    if x_api_token != "platform-connection-token":   # 连接凭据校验
+        raise HTTPException(status_code=401, detail="TOKEN_INVALID")
+    if not (8 &lt;= len(req.invoice_no) &lt;= 20):
+        return {"ok": False, "code": "FORMAT_ERROR", "msg": "发票号格式不正确"}
+    # 真实场景：调用税务局/财务系统查验，注意设置 3 秒超时
+    result = query_invoice_system(req.invoice_no, req.amount)
+    return {"ok": result.valid, "code": "OK" if result.valid else "NOT_FOUND",
+            "msg": "查验通过" if result.valid else "发票不存在或金额不符"}</code></pre>
+    <div class="tip">💡 连接器导入时把 FastAPI 自动生成的 OpenAPI（<code>/docs</code>）地址填进平台，可省去手写参数映射；上线前务必在平台侧配置 3 秒超时与失败重试，避免外部服务抖动把表单提交拖成"转圈圈"。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：列出你所用平台的全部扩展点（截图文档页），把团队近半年的定制需求各归入五类通道之一，标出"当前无扩展点支撑"的缺口。</li>
+      <li><strong>任务 2</strong>：把示例一的校验脚本移植到你的平台上，绑定到报销表单，构造 4 种非法输入（空明细、超预算未签字、坏发票号、小数精度问题）验证拦截生效。</li>
+      <li><strong>任务 3</strong>：用 FastAPI 写一个自定义服务（发票查验或复杂费率计算，可 mock 数据），导入平台生成连接器，绑定到流程的自动节点，跑通一次成功与一次失败路径并核对错误提示。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：配置平台事件 Webhook 回调到自研服务，用抓包验证签名头与重复回调的幂等处理，并给扩展代码建独立 Git 仓库打上 v1.0 标签。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://fastapi.tiangolo.com/" target="_blank">FastAPI 官方文档</a> — <span class="desc">本节示例服务的权威出处，教程部分含依赖注入、Header 鉴权、数据校验的完整讲法。</span></li>
+      <li>📖 <a href="https://swagger.io/specification/" target="_blank">OpenAPI 规范</a> — <span class="desc">把自研服务注册成平台连接器的契约基础，重点看参数、响应与安全方案定义。</span></li>
+      <li>📖 <a href="https://developer.mozilla.org/zh-CN/docs/Web/Web_components" target="_blank">MDN：Web Components</a> — <span class="desc">自定义组件跨框架复用的标准技术，写平台组件扩展前的必备基础。</span></li>
+      <li>📖 <a href="https://spring.io/projects/spring-boot" target="_blank">Spring Boot 官方项目页</a> — <span class="desc">Java 团队用它承载低代码外挂的后端扩展服务，与后续微服务模块衔接。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能按"配置 → 前端脚本 → 后端函数 → 连接器 → 插件"的顺序为一个定制需求选对扩展通道吗？</li>
+      <li>我能说出扩展代码的四条纪律，并指出自己项目里违反其中哪几条吗？</li>
+      <li>我的平台与自研服务之间的调用有超时、重试、签名校验、幂等处理吗？</li>
+      <li>我能在 1 小时内跑通"外部服务 → 平台连接器 → 流程自动节点"的完整链路吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m4-2.html">← 上一节：表单、流程、页面可视化配置</a>
+    <a href="s3-m4-4.html">下一节：低代码与 AI 能力集成 →</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>调用大模型 API（OpenAI / 国产大模型）· AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块三 · 业务系统 AI 集成 / <strong>调用大模型 API（OpenAI / 国产大模型）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>调用大模型 API（OpenAI / 国产大模型）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块三 · 业务系统 AI 集成</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>学完本节后，你能够说清大模型对话接口的请求/响应结构与 temperature、max_tokens 等关键参数的作用。</li>
+      <li>你能够在 Java 业务系统中通过 HTTP 客户端调用 OpenAI 兼容接口或国产大模型（智谱、腾讯混元等）。</li>
+      <li>你能够设计一层统一的 AiClient 抽象，让底层模型可替换而不影响业务代码。</li>
+      <li>你能够落实密钥管理、超时重试、限流与 Token 成本统计等工程化要求。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：大模型 API 的基本形态</h3>
+    <p>主流大模型都提供"<strong>对话补全</strong>"（chat completions）接口：向一个 HTTPS 地址 POST 一段 messages 数组，每条消息有 role 和 content 两个字段。role 有三种：<strong>system</strong>（设定助手身份与规则，通常放在最前）、<strong>user</strong>（用户的输入）、<strong>assistant</strong>（模型此前的回复，多轮对话时要回传给模型以恢复上下文）。响应中的 choices[0].message.content 就是模型生成的文本，usage 字段给出 prompt_tokens、completion_tokens、total_tokens——<strong>计费与配额都按 Token 算</strong>（中文约 1 字 ≈ 1~2 Token）。</p>
+    <p>常用参数：<strong>temperature</strong> 控制随机性（0~2，事实性任务取 0~0.3，创意写作取 0.8 以上）、max_tokens 限制回复长度、top_p 与 temperature 二选一调节。超出上下文窗口会报错误码，需要业务侧做截断。</p>
+
+    <h3>知识点 2：统一的模型接入层</h3>
+    <p>OpenAI、智谱（open.bigmodel.cn）、腾讯混元、DeepSeek、通义千问等的接口格式高度相似（多数直接兼容 OpenAI 的 messages/tools 结构），差异集中在<strong>域名、鉴权 header、部分字段名与模型名</strong>。工程上不要在业务代码里写死某一家：定义一个 AiClient 接口（chat(AiRequest): AiResponse），用配置切换 provider。调用方式三选一：官方 Java SDK（省事但各家不通用）、<strong>OkHttp/HttpClient 手写（可控性最好，本节示例）</strong>、或 Spring AI / LangChain4j 这类抽象框架。解析 JSON 用 Jackson，模型响应结构要定义成与厂商无关的中间结构。</p>
+
+    <h3>知识点 3：工程化要点与常见坑</h3>
+    <p>模型接口延迟高（首 Token 几百毫秒到几秒）、偶发超时与限流，必须配置<strong>连接超时（建议 5s）与读超时（普通 60s、流式另议）</strong>，对 429/5xx 做指数退避重试（2~3 次），并对并发做信号量限流保护自己的线程池。密钥严禁硬编码进代码或提交 Git，应放在环境变量/配置中心，日志中对 key 打码。每次调用记录<strong>模型名、Token 用量、耗时、是否成功</strong>，这是后续做成本核算和优化的原始数据。常见坑：忘记 system 提示导致输出格式不稳定；把大段业务数据整体拼入 prompt 造成成本与延迟失控；异常直接抛给用户看到英文报错；并发调用打满连接池影响主业务。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：用 OkHttp 调用 OpenAI 兼容接口。把 baseUrl 与 key 换成智谱或混元的配置（多数国产模型兼容该请求体），代码无需改动：</p>
+<pre><code>@Component
+public class OpenAiClient {
+    private final OkHttpClient http;
+    private final ObjectMapper json = new ObjectMapper();
+    private final String baseUrl;   // 如 https://api.openai.com/v1 或厂商对应地址
+    private final String apiKey;
+    private final String model;     // 如 gpt-4o-mini、glm-4-flash
+
+    public OpenAiClient(@Value("${ai.base-url}") String baseUrl,
+                        @Value("${ai.api-key}") String apiKey,
+                        @Value("${ai.model}") String model) {
+        this.baseUrl = baseUrl;
+        this.apiKey = apiKey;
+        this.model = model;
+        this.http = new OkHttpClient.Builder()
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(60, TimeUnit.SECONDS)
+                .build();
+    }
+
+    public String chat(String systemPrompt, String userPrompt) throws IOException {
+        Map&lt;String, Object&gt; body = new LinkedHashMap&lt;&gt;();
+        body.put("model", model);
+        body.put("temperature", 0.2);
+        body.put("messages", List.of(
+                Map.of("role", "system", "content", systemPrompt),
+                Map.of("role", "user", "content", userPrompt)));
+
+        Request request = new Request.Builder()
+                .url(baseUrl + "/chat/completions")
+                .addHeader("Authorization", "Bearer " + apiKey)   // 智谱等同样用 Bearer
+                .post(RequestBody.create(json.writeValueAsBytes(body),
+                        MediaType.parse("application/json")))
+                .build();
+
+        try (Response resp = http.newCall(request).execute()) {
+            if (!resp.isSuccessful()) {
+                // 把厂商返回的状态码与错误体记录后再降级，不要直接抛给用户
+                throw new IOException("模型接口异常 http=" + resp.code()
+                        + " body=" + (resp.body() != null ? resp.body().string() : ""));
+            }
+            JsonNode root = json.readTree(resp.body().bytes());
+            log.info("模型调用完成 model={} usage={}", model, root.path("usage"));
+            return root.at("/choices/0/message/content").asText();
+        }
+    }
+}
+</code></pre>
+    <p>对应的配置（密钥从环境变量读取，不进 Git）：</p>
+<pre><code>ai:
+  base-url: ${AI_BASE_URL:https://api.openai.com/v1}
+  api-key: ${AI_API_KEY}
+  model: ${AI_MODEL:gpt-4o-mini}
+</code></pre>
+    <div class="tip">💡 提示：上线前用同一段 prompt 分别打 3 家国产模型做冒烟测试，记录延迟与输出质量；智谱、混元等厂商的模型名与计费在各自控制台可查，选"小快便宜"的模型做默认档，复杂任务再升级。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：在智谱或腾讯云控制台开通大模型服务、获取 API Key，先用 curl 直接调通一次对话接口，观察响应 JSON 结构。</li>
+      <li><strong>任务 2</strong>：按示例实现 AiClient 组件，在 Controller 上暴露一个 /ai/chat 接口，把 system 提示与用户输入分开传入。</li>
+      <li><strong>任务 3</strong>：给 AiClient 加上重试（429/5xx 指数退避，最多 3 次）与并发信号量限流，并打印 Token 用量日志。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：抽象出 provider 配置项，同一份业务代码通过切换配置分别调用智谱与 OpenAI 兼容接口，输出两份结果对比。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://platform.openai.com/docs" target="_blank">OpenAI API 官方文档</a> — <span class="desc">对话接口字段与参数的行业事实标准，理解 messages 机制首选</span></li>
+      <li>📖 <a href="https://open.bigmodel.cn/dev/api" target="_blank">智谱开放平台 API 文档</a> — <span class="desc">国产模型接入示例，字段与 OpenAI 高度兼容，适合国内网络环境</span></li>
+      <li>📖 <a href="https://cloud.tencent.com/document/product/1729" target="_blank">腾讯云混元大模型文档</a> — <span class="desc">国内厂商接入与计费、限流说明的官方入口</span></li>
+      <li>📖 <a href="https://spring.io/projects/spring-ai" target="_blank">Spring AI</a> — <span class="desc">Spring 官方的模型抽象层，可作为自研 AiClient 的进阶替代</span></li>
+      <li>📖 <a href="https://square.github.io/okhttp/" target="_blank">OkHttp 官方文档</a> — <span class="desc">超时、连接池与拦截器配置，排查 HTTP 层问题看这里</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说出 messages 里三种 role 的作用，以及多轮对话为什么要回传 assistant 消息吗？</li>
+      <li>我能在 30 分钟内换一家模型厂商跑通同一个业务接口吗？</li>
+      <li>我的 API Key 是否已离开代码仓库？日志中是否有 Token 用量与耗时记录？</li>
+      <li>我的调用是否具备超时、重试与限流三件套，模型故障时业务能否降级？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m2-5.html">← 上一节：单元测试与接口文档（Knife4j）</a>
+    <a href="s3-m3-2.html">下一节：流式输出与对话管理 →</a>
+  </div>
+
+</div>
+</body>
+</html>

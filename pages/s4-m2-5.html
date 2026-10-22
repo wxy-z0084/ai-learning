@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>高可用与容灾设计 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块二 · 分布式方案 / <strong>高可用与容灾设计</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>高可用与容灾设计</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块二 · 分布式方案</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够用 <strong>RTO / RPO</strong> 量化灾备目标，并换算成"可用性几个 9 对应全年允许宕机时长"。</li>
+      <li>能够对自己负责的系统做<strong>单点排查</strong>，给出负载均衡、集群化、多可用区部署的具体整改清单。</li>
+      <li>能够配置健康检查探针、限流与熔断降级，说明它们分别保护谁。</li>
+      <li>能够设计一次<strong>故障演练</strong>（杀实例、断依赖、模拟机房故障）并验证预案有效。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：高可用的度量与常见形态</h3>
+    <p>高可用不是口号，先量化：<strong>可用性 = 正常服务时间 / 总时间</strong>。99.9%（三个 9）全年允许宕机 8.8 小时，99.99%（四个 9）52 分钟，99.999%（五个 9）5 分钟——每多一个 9，成本大约翻倍，要按业务价值选档。灾备侧两个硬指标：<strong>RTO</strong>（Recovery Time Objective，故障后多久恢复服务）与 <strong>RPO</strong>（Recovery Point Objective，最多可容忍丢失多长时间的数据）——RPO 决定备份与复制方案，RTO 决定切换方式。</p>
+    <p>常见形态由低到高：单实例 + 自动拉起（分钟级）、<strong>冷备</strong>（备用机平时不跑，切换小时级，RTO 差）、<strong>温备</strong>（备用系统常驻但数据滞后）、<strong>热备</strong>（多活节点同时服务，故障秒级切换）、<strong>同城双活 + 异地灾备</strong>（异地冷/温备，防机房级灾难）、<strong>异地多活</strong>（多个机房同时读写，成本与复杂度最高）。绝大多数互联网业务的目标是"同城双活 + 异地冷备"，异地多活只给极少数核心链路（登录、支付）。</p>
+
+    <h3>知识点 2：消除单点与弹性设计</h3>
+    <p>高可用的第一性原理：<strong>任何组件都不能只有一个实例</strong>。排查顺序是入口到存储：负载均衡器（Nginx/K8s Ingress 至少两台或托管 LB）、无状态应用服务（≥2 实例跨可用区）、缓存（Redis 主从 + 哨兵）、MQ（集群多副本）、数据库（主从 + 半同步/组复制 + 自动切换）、文件存储与 DNS。还要注意"逻辑单点"：定时任务调度器（只有一台机器配 cron）、配置中心的推送通道、以及某个只部署一份的后台管理系统。</p>
+    <p>弹性设计包含三层：<strong>健康检查与自愈</strong>（探针失败自动摘除流量并重启/重建实例）；<strong>冗余与隔离</strong>（跨可用区打散副本，避免"一损俱损"；对大客户、大租户做资源隔离）；<strong>限流熔断降级</strong>——限流保护自己不被洪峰打垮（令牌桶/漏桶），熔断保护下游不被故障拖死（错误率超阈值即快速失败），降级则在依赖不可用时给出兜底结果（缓存兜底、静态兜底页、关闭非核心功能）。三者是分层防线：入口限流 → 服务间熔断 → 核心链路保底。</p>
+
+    <h3>知识点 3：预案、演练与复盘</h3>
+    <p>没有演练过的预案等于没有预案。常见误区：切换脚本从未跑通、依赖方不知道你的降级开关、值班同学没见过告警。有效做法是<strong>故障注入演练</strong>：在生产或预发环境主动 kill 实例、拔网线（网络分区）、把依赖接口延迟拉到超时，观察系统是否按设计降级、告警是否触发、值班流程是否顺畅（可参考混沌工程工具）。每次故障后写<strong>复盘报告</strong>：时间线、根因、应对、改进项（带负责人和截止日期），并把"监控盲区、缺失的告警、未演练的预案"列为必修项。监控指标至少覆盖：可用性拨测、P99 延迟、错误率、饱和度（CPU/内存/连接数/队列深度），并为每个核心依赖配置拨测告警。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：Kubernetes 中的健康检查与多副本部署——这是"自愈 + 流量摘除"的标准配置：</p>
+<pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+spec:
+  replicas: 3                       # 多副本是高可用底线，且 K8s 会打散到不同节点
+  template:
+    spec:
+      topologySpreadConstraints:    # 尽量分布在不同可用区/节点
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: { app: order-service }
+      containers:
+        - name: app
+          image: registry.example.com/order-service:1.4.2
+          ports: [{ containerPort: 8080 }]
+          readinessProbe:           # 未就绪 → 不进 Service endpoints，不接流量
+            httpGet: { path: /actuator/health/readiness, port: 8080 }
+            periodSeconds: 5
+          livenessProbe:            # 连续失败 → 重启容器，实现自愈
+            httpGet: { path: /actuator/health/liveness, port: 8080 }
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:                # 无 limits 会被一个服务拖垮整节点
+            requests: { cpu: "500m", memory: "512Mi" }
+            limits:   { cpu: "1",    memory: "1Gi" }</code></pre>
+    <div class="tip">💡 readiness 与 liveness 探针混用是常见事故源：把同一个重接口同时配给两者，会因下游抖动导致全集群实例被反复重启。liveness 只做"进程还活着"的廉价判断（如 /healthz 直接返回 200），业务依赖检查放 readiness。</div>
+    <p>示例二：Nginx 入口的健康检查、权重与熔断式超时配置：</p>
+<pre><code>upstream order_backend {
+    least_conn;
+    server 10.0.1.11:8080 max_fails=3 fail_timeout=15s weight=5;
+    server 10.0.1.12:8080 max_fails=3 fail_timeout=15s weight=5;
+    server 10.0.1.13:8080 backup;          # 备份节点：仅当前端全挂时启用
+    keepalive 64;                          # 长连接复用，降低握手开销
+}
+
+server {
+    listen 80;
+    location /api/ {
+        proxy_next_upstream error timeout http_502 http_503 http_504;  # 故障自动换节点
+        proxy_connect_timeout 2s;          # 连接超时压短，快速失败触发重试
+        proxy_read_timeout 10s;
+        proxy_pass http://order_backend;
+    }
+}</code></pre>
+    <p>示例三：用一条 SQL 式的"单点自查清单"驱动整改——逐项回答并归档到团队 wiki：DNS 是否双解析？LB 是否跨区？每类存储是否至少一主一从？定时任务是否有分布式锁与备用调度机？降级开关是否可远程下发并有回滚？依赖方超时是否配置且小于调用方？把任何一项答"否"的都列为 P2 以上整改项。</p>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为你的系统画一张部署拓扑图（入口→应用→缓存/MQ/DB），在图上标出所有单点，并按"改造成本 × 收益"排出前三个整改项。</li>
+      <li><strong>任务 2</strong>：按示例一给一个应用补上 K8s 探针与多副本，然后连续 kill 两个 Pod，观察流量是否无损切换（用 curl 循环压接口统计错误数）。</li>
+      <li><strong>任务 3</strong>：给核心链路设计三个降级开关（如"评论关闭""推荐位降级为静态"），验证开关关闭后下游依赖的调用量确实归零。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：在预发环境做一次故障演练：把数据库主节点停止，记录 RTO/RPO 实测值与预案偏差，输出一页复盘报告。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/" target="_blank">Kubernetes 探针官方文档</a> — <span class="desc">liveness/readiness/startup 三种探针的语义与调参建议。</span></li>
+      <li>📖 <a href="https://nginx.org/en/docs/" target="_blank">Nginx 官方文档</a> — <span class="desc">upstream、proxy_next_upstream、健康检查相关指令的权威参考。</span></li>
+      <li>📖 <a href="https://resilience4j.readme.io/" target="_blank">Resilience4j 官方文档</a> — <span class="desc">熔断、限流、舱壁隔离、重试的 Java 实现，含配置示例。</span></li>
+      <li>📖 <a href="https://sre.google/books/" target="_blank">Google SRE 图书（在线免费）</a> — <span class="desc">《SRE》《站点可靠性工程》中 SLI/SLO/错误预算章节是高可用指标化的方法论来源。</span></li>
+      <li>📖 <a href="https://docs.aws.amazon.com/zh_cn/wellarchitected/latest/framework/wa-framework.html" target="_blank">AWS 可靠性支柱（Well-Architected）</a> — <span class="desc">多可用区、故障恢复、混沌工程的云上最佳实践框架。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说出我们系统当前的 RTO/RPO 目标，以及实测能达成的水平吗？</li>
+      <li>我的部署拓扑里还有没有"只有一份"的组件？它的备用方案是什么？</li>
+      <li>限流、熔断、降级三道防线在我的系统里分别落在哪里，触发后现象是什么？</li>
+      <li>我最近一次验证过的切换/降级预案是什么时候做的？没有演练过的预案现在能跑通吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m2-4.html">← 上一节：分库分表（ShardingSphere）</a>
+    <a href="s4-m3-1.html">下一节：多智能体角色分工与任务规划 →</a>
+  </div>
+
+</div>
+</body>
+</html>

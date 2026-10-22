@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JVM 调优与 SQL 优化 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块五 · 高并发系统落地 / <strong>JVM 调优与 SQL 优化</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>JVM 调优与 SQL 优化</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块五 · 高并发系统落地</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够读懂 GC 日志与内存快照，区分"分配过快"和"泄漏"两类问题，并用正确参数治理 Full GC。</li>
+      <li>能够用 EXPLAIN 分析执行计划，识别全表扫描、临时表、文件排序等危险信号并改写 SQL。</li>
+      <li>能够制定"先测后调"的调优流程：以压测数据为依据，每次只改一个变量，改完复测。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：调优的正确姿势——别上来就改参数</h3>
+    <p>绝大多数"卡顿"不是因为 JVM 参数不好，而是<strong>代码写得差</strong>：循环里 new 大对象、无界缓存、流没关闭、日志里拼接超大 JSON。正确的顺序是：<strong>先用工具确认问题位置，改代码能解决就绝不碰参数</strong>。JDK 17+ 默认的 G1 收集器在大多数场景已经够用，盲目换成 ZGC 或 Shenandoah 只会让问题更难排查。</p>
+    <p>三个核心观察量：<strong>吞吐量</strong>（业务时间占比）、<strong>暂停时间</strong>（Stop-The-World 时长，直接影响用户可感延迟）、<strong>堆占用曲线形状</strong>（锯齿正常，水平线不回落=泄漏，陡坡式上升=分配过快）。</p>
+
+    <h3>知识点 2：JVM 问题定位的工具链</h3>
+    <p>轻量级先上 <strong>jstat</strong>（看各区占用与 GC 次数频率）、<strong>jmap -histo</strong>（看对象数量排行榜，几十万个 byte[] 基本就是缓存没设上限）。抓 <strong>jmap -dump</strong> 堆快照后用 Eclipse MAT 或 VisualVM 分析支配树，找到被谁引用着（GC Root 路径）。<strong>JDK Mission Control（JMC）</strong>是官方利器，其 JFR（飞行记录器）开销低于 1%，可以长期挂在生产环境录制，出问题回放分析，比抓 dump 友好得多。</p>
+    <p>常见坑：堆设得越大越好是错的——堆越大 GC 扫描越慢、暂停越久；堆大小一般设为可用内存的 1/4 且不超过 32GB（开启指针压缩的上限）。另一个坑：-Xmx 和 -Xms 不一致会导致运行中动态扩容引发暂停。</p>
+
+    <h3>知识点 3：SQL 优化的四大抓手</h3>
+    <p>①<strong>索引</strong>：最左前缀原则、避免在索引列上做函数或隐式转换（WHERE DATE(create_time)=... 会让索引失效，改写成范围查询）；②<strong>避免 SELECT *</strong>：只取需要的列，大字段（text/json）尤其要避开；③<strong>分页优化</strong>：深分页 LIMIT 100000,10 会先扫描十万行再丢弃，改用"延迟关联"或记录上次最大 ID；④<strong>JOIN 与子查询</strong>：驱动表选择小表，子查询在数据量大时改写为 JOIN。</p>
+    <p>任何 SQL 优化的依据都只有两个：<strong>EXPLAIN 的执行计划</strong>和<strong>慢查询日志的真实耗时</strong>。"我觉得这个查询很慢"不算证据。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：开箱即用的生产级 JVM 启动参数（JDK 17 + G1，含 GC 日志），可直接替换默认值使用：</p>
+<pre><code>java -Xms4g -Xmx4g \                  # 堆初始值=最大值，避免运行时扩容抖动
+      -XX:+UseG1GC \
+      -XX:MaxGCPauseMillis=200 \       # 目标暂停时间（业务可接受的延迟上限）
+      -XX:G1HeapRegionSize=8m \
+      -XX:+HeapDumpOnOutOfMemoryError \
+      -XX:HeapDumpPath=/data/logs/heap.hprof \
+      -Xlog:gc*:file=/data/logs/gc.log:time,uptime,level,tags:filecount=5,filesize=20m \
+      -jar order-service.jar
+</code></pre>
+    <p>示例二：深分页优化——把扫描 10 万行的 LIMIT 改写为延迟关联：</p>
+<pre><code>-- ❌ 低效：MySQL 需要扫描并丢弃前 100000 行
+SELECT id, title, amount FROM orders ORDER BY id LIMIT 100000, 10;
+
+-- ✅ 优化：先用覆盖索引取 10 个 id，再回表取完整字段
+SELECT o.id, o.title, o.amount
+FROM orders o
+JOIN (SELECT id FROM orders ORDER BY id LIMIT 100000, 10) t ON o.id = t.id;
+
+-- 两者用 EXPLAIN 验证：后者 Extra 列不再出现 Using filesort，扫描行数骤降
+EXPLAIN SELECT o.id, o.title, o.amount
+FROM orders o JOIN (SELECT id FROM orders ORDER BY id LIMIT 100000, 10) t ON o.id = t.id;
+</code></pre>
+    <div class="tip">💡 提示：JFR 录制一条命令就能开——jcmd &lt;pid&gt; JFR.start duration=10m filename=rec.jfr，然后用 JMC 打开可视化分析。生产环境想做"事后取证"，把它加到巡检脚本里就行。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：给本地 Java 程序加上含 GC 日志的启动参数，跑一个压测场景，从 gc.log 里找出 Minor GC 与 Full GC 的频率和暂停时长。</li>
+      <li><strong>任务 2</strong>：用 jmap -histo 统计一个运行中 Java 进程的对象 Top10，写 200 字分析哪个对象数量异常及可能原因。</li>
+      <li><strong>任务 3</strong>：用 EXPLAIN 分析 5 条你项目里的真实 SQL，找出其中 2 条有优化空间的并改写，对比执行计划与耗时。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：用 JMC 录制 10 分钟 JFR 并回放，找出其中耗时最长的 3 个方法并提出优化思路。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://openjdk.org/projects/jmc/" target="_blank">OpenJDK Mission Control（JMC）</a> — <span class="desc">官方低开销监控与 JFR 分析工具，本节推荐的首选工具</span></li>
+      <li>📖 <a href="https://docs.oracle.com/en/java/javase/17/gctuning/" target="_blank">Java SE 17 Garbage Collection Tuning Guide</a> — <span class="desc">Oracle 官方 GC 调优手册，参数含义以它为准</span></li>
+      <li>📖 <a href="https://docs.oracle.com/en/java/javase/17/docs/specs/man/jcmd.html" target="_blank">JDK 官方 jcmd 命令手册</a> — <span class="desc">jcmd/jstat/jmap 等自带诊断命令的权威参数说明，排查线上问题随查随用</span></li>
+      <li>📖 <a href="https://dev.mysql.com/doc/refman/8.0/en/using-explain.html" target="_blank">MySQL 官方 EXPLAIN 文档</a> — <span class="desc">执行计划每个字段的权威解释，看懂 type/key/rows 三列就入门了</span></li>
+      <li>📖 <a href="https://use-the-index-luke.com/" target="_blank">Use The Index, Luke</a> — <span class="desc">数据库索引与 SQL 优化的经典免费电子书，示例覆盖主流数据库</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能通过堆占用曲线的形状区分"泄漏"和"分配过快"吗？</li>
+      <li>我是否坚持"先用数据定位、改完复测"而不是凭感觉调参？</li>
+      <li>我能独立写出一条含 GC 日志的生产级启动参数吗？</li>
+      <li>面对一条慢 SQL，我能在 10 分钟内用 EXPLAIN 指出它慢在哪一步吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m5-1.html">← 上一节：性能压测（JMeter）与瓶颈定位</a>
+    <a href="s4-m5-3.html">下一节：限流、熔断与降级策略 →</a>
+  </div>
+
+</div>
+</body>
+</html>

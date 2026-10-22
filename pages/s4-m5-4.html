@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>容量规划与弹性伸缩 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块五 · 高并发系统落地 / <strong>容量规划与弹性伸缩</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>容量规划与弹性伸缩</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块五 · 高并发系统落地</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够基于压测得出的单机容量数据，用公式推算出目标峰值下的机器数量并留出合理冗余。</li>
+      <li>能够看懂 CPU 利用率、内存、连接池、带宽四个维度的容量水位，并设定扩容触发线。</li>
+      <li>能够为在线与离线两类负载设计弹性伸缩策略（定时、阈值、预测式），并处理伸缩期间的流量衔接。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：容量规划的公式与冗余</h3>
+    <p>容量规划的输入只有一个：<strong>压测测出来的单机处理能力</strong>（比如单实例稳定承载 300 TPS）。公式很简单：<strong>机器数 = 目标峰值 TPS ÷ 单机容量 × 安全系数</strong>。安全系数通常取 1.5-2（大促取 2），它同时覆盖了流量预估误差、机器故障和长尾延迟劣化。示例：目标峰值 5000 TPS、单机 300 TPS、系数 1.7，需要 5000÷300×1.7≈29 台，按最小扩容粒度取 32 台。</p>
+    <p>比数字更重要的是<strong>短板原则</strong>：整体容量由最稀缺的资源决定——CPU 先打满、连接池先耗尽还是带宽先跑满，取最先到的那个。所以规划时要同时给出 CPU、内存、连接数、带宽四个维度的测算表，而不是只算 CPU。</p>
+
+    <h3>知识点 2：容量水位线的设定</h3>
+    <p>给每类资源画三条线：<strong>警戒线</strong>（如 CPU 60%，提前准备）、<strong>扩容线</strong>（70%，触发自动扩容）、<strong>熔断线</strong>（85%，触发限流保命）。为什么不直接 90% 才扩？因为<strong>扩容动作本身有延迟</strong>：新机器拉起、镜像分发、预热、注册到负载均衡，传统 VM 分钟级，容器冷启动也要几十秒到几分钟，这段时间里流量还在涨。此外，刚启动的实例有<strong>JIT 预热</strong>问题，前几分钟处理能力打折，要靠负载均衡的预热配置（新实例先接少量流量）来平滑。</p>
+    <p>另一个常被忽略的容量项是<strong>下游容量</strong：你的服务扩容了 3 倍，数据库连接池和第三方 API 配额没有跟着扩，扩容等于把压力转嫁给了瓶颈。</p>
+
+    <h3>知识点 3：弹性伸缩的三种策略与衔接</h3>
+    <p><strong>定时伸缩</strong>适合已知峰值（大促、发版直播），提前 30 分钟扩容，最可靠；<strong>阈值伸缩</strong>适合日常波动（按 CPU 或队列积压自动加减），但要配置<strong>冷却时间</strong>（缩容后 10-15 分钟内不再缩，防止抖动来回震荡）；<strong>预测式伸缩</strong>结合历史同期数据提前动作，云厂商均已提供（如 AWS Predictive Scaling、阿里云弹性伸缩的定时规则）。</p>
+    <p>伸缩期间的衔接设计是重点：<strong>缩容前必须先摘流量</strong>（从负载均衡下线 → 等待存量请求处理完 → 再关机），否则正在处理的请求会直接失败；无状态服务最好做，有状态服务（WebSocket、长连接 AI 会话）缩容要格外小心，需要迁移会话或采用分片摘除策略。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：容量测算表（可直接套用到 Excel），把"拍脑袋买机器"变成有依据的推算：</p>
+<pre><code># capacity_plan.py —— 容量测算（可直接运行）
+peak_tps      = 5000          # 业务预估峰值（来自历史大促数据 × 增长系数）
+single_cap    = 300           # 单实例压测稳定容量（来自上一节压测报告）
+safety_factor = 1.7           # 安全系数：覆盖预估误差 + 故障 + 预热打折
+
+import math
+nodes = math.ceil(peak_tps / single_cap * safety_factor)
+print(f"应用实例数: {nodes} 台")                 # 输出 29
+
+# 短板维度并行核算
+db_conn_per_node = 50
+print(f"数据库连接池总需求: {nodes * db_conn_per_node} 个")  # 提前告知 DBA 扩容
+bandwidth_mbps   = nodes * 50
+print(f"出口带宽需求: {bandwidth_mbps} Mbps")
+</code></pre>
+    <p>示例二：Kubernetes HPA + 缩容前优雅摘流量的配置要点（无状态在线服务）：</p>
+<pre><code># hpa.yaml —— CPU 扩容线 70%，副本 4~20，含缩容冷却
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: order-service}
+  minReplicas: 4
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 900    # 缩容冷却 15 分钟，防抖动
+---
+# 关键配套：preStop 钩子 + terminationGracePeriodSeconds
+# 先从 Endpoint 摘除（停止接新流量）→ 等 15 秒让存量请求跑完 → 再退出进程
+lifecycle:
+  preStop:
+    exec: {command: ["sh", "-c", "sleep 15"]}
+</code></pre>
+    <div class="tip">💡 提示：每次大促前做一次"缩容演练"——手动砍掉 30% 机器，观察剩余实例的 CPU 与错误率。这比任何理论推算都能暴露真实的容量水位。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：用容量测算脚本，为你的目标峰值（自拟）算出实例数、数据库连接数、带宽三项，并写出安全系数取 1.7 的三条理由。</li>
+      <li><strong>任务 2</strong>：为关键资源（CPU、队列积压）各写一条扩容触发条件和一条缩容条件，注明冷却时间。</li>
+      <li><strong>任务 3</strong>：列出你的系统里 3 个"扩容不解决问题"的依赖点（如第三方 API 配额、数据库单点），为每个写出应对方案。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：设计一次缩容演练方案，包含演练目标、步骤、观察指标和回退条件。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/" target="_blank">Kubernetes HPA 官方文档</a> — <span class="desc">阈值式弹性伸缩的标准实现，重点看 behavior 字段的稳定窗口</span></li>
+      <li>📖 <a href="https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/" target="_blank">Kubernetes Pod 生命周期</a> — <span class="desc">理解 preStop 与优雅终止，避免缩容时砍断正在处理的请求</span></li>
+      <li>📖 <a href="https://aws.amazon.com/autoscaling/" target="_blank">AWS Auto Scaling</a> — <span class="desc">定时/预测式/阈值三种伸缩策略的官方产品文档与最佳实践</span></li>
+      <li>📖 <a href="https://sre.google/sre-book/managing-load/" target="_blank">Google SRE — 供需预测与容量规划章节</a> — <span class="desc">大厂做容量规划的方法论源头，含预测误差处理</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我的扩容数量是否有压测数据支撑，而不是凭经验估计？</li>
+      <li>我是否同时核算了 CPU、内存、连接池、带宽四个维度？</li>
+      <li>我的伸缩策略是否考虑了扩容延迟和 JIT 预热带来的能力折扣？</li>
+      <li>缩容时我的系统能否做到先摘流量再关机，不中断存量请求？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m5-3.html">← 上一节：限流、熔断与降级策略</a>
+    <a href="s4-m5-5.html">下一节：实战：高并发业务系统 AI 智能化升级 →</a>
+  </div>
+
+</div>
+</body>
+</html>

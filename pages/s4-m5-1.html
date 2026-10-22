@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>性能压测（JMeter）与瓶颈定位 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块五 · 高并发系统落地 / <strong>性能压测（JMeter）与瓶颈定位</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>性能压测（JMeter）与瓶颈定位</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块五 · 高并发系统落地</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够用 JMeter 编写可复用的压测脚本，正确设置线程组、参数化、断言与思考时间。</li>
+      <li>能够读懂 TPS、响应时间分位数（P95/P99）、错误率三大核心指标，判断系统容量拐点。</li>
+      <li>能够按照"网络 → 应用 → 缓存 → 数据库 → 外部依赖"的顺序定位瓶颈并出具压测报告。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：压测前必须想清楚的三件事</h3>
+    <p>第一，<strong>压测目标要量化</strong>："扛住双 11"不是目标，"大促峰值 3000 TPS 下 P95 小于 500ms、错误率低于 0.1%"才是。第二，<strong>环境要接近生产</strong>：数据量至少同一量级（10 万行数据和 1 亿行数据的 SQL 执行计划完全不同），否则结论无效。第三，<strong>压测数据要独立</strong>：每个虚拟用户用不同的账号和订单号，避免全部命中同一行缓存或触发行锁，这种"假性能"是新手最常踩的坑。</p>
+    <p>另外，压测前先做一次<strong>单接口基准测试</strong>（1 个并发），拿到响应时间基线，后面所有并发下的劣化都以此为参照。</p>
+
+    <h3>知识点 2：JMeter 脚本编写要点</h3>
+    <p>JMeter 的核心组件：<strong>线程组</strong>控制并发模型（想模拟稳态流量用"固定吞吐量定时器"，想模拟峰值冲击用阶梯加压 jp@gc - Stepping Thread Group）；<strong>CSV Data Set Config</strong> 做参数化，让每个虚拟用户读取不同的账号；<strong>Header Manager</strong> 带上认证 Token；<strong>Assertion</strong> 校验返回内容——<strong>没有断言的压测是自欺欺人</strong>，服务返回 500 也算"响应很快"。</p>
+    <p>脚本执行建议用 <strong>Non-GUI 模式</strong>（命令行 jmeter -n -t xxx.jmx -l result.jtl），GUI 模式会因自身渲染吃掉大量内存，压出来的数据不可信。压测机自身也要监控 CPU，避免压测端成为瓶颈。</p>
+
+    <h3>知识点 3：瓶颈定位的分层排查法</h3>
+    <p>压测中一旦发现 TPS 上不去或延迟飙升，按顺序排查：<strong>① 网络与带宽</strong>——看压测端和服务端的网卡是否打满；<strong>② 应用 CPU</strong>——top -H 看是哪些线程吃 CPU，JStack 抓栈看是不是在做重复计算或 JSON 序列化；<strong>③ 内存与 GC</strong>——看 Full GC 频率（下一节会专门讲 JVM 调优）；<strong>④ 数据库</strong>——慢查询日志 + 执行计划，重点看是否缺索引、是否全表扫描；<strong>⑤ 外部依赖</strong>——AI 推理服务、支付网关、短信通道的响应时间，很多时候瓶颈在第三方。</p>
+    <p>一个经验法则：<strong>TPS 曲线出现平台期，说明遇到了某个串行化资源</strong>（锁、连接池、单线程队列）；<strong>TPS 断崖式下跌 + 延迟飙升，说明资源耗尽</strong>（连接池打满、线程阻塞堆积）。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：一条可直接使用的 JMeter 命令行压测——50 并发、持续 5 分钟、输出聚合报告：</p>
+<pre><code># 1. 先在 GUI 里保存测试计划为 order-test.jmx，然后用 Non-GUI 模式执行
+jmeter -n -t order-test.jmx \
+  -l result.jtl \
+  -Jthreads=50 -Jrampup=60 -Jduration=300 \
+  -e -o ./report          # -e -o 自动生成 HTML 报告目录
+
+# 2. 实时观察汇总（另开终端，每 10 秒刷新）
+tail -f result.jtl | awk -F, '{print "elapsed="$1" code="$8" tps="$17}'
+</code></pre>
+    <p>示例二：JMeter 参数化配置（CSV Data Set Config），确保每个虚拟用户拿不同账号，避免缓存假象：</p>
+<pre><code># users.csv（逗号分隔，首行表头）
+user_id,token
+u_10001,tk_aaa
+u_10002,tk_bbb
+u_10003,tk_ccc
+
+# JMeter 中 CSV Data Set Config 关键设置：
+#   Filename: users.csv    Variable Names: user_id,token
+#   Recycle on EOF: True   Sharing Mode: All threads
+#   HTTP Header Manager 中引用 ${token}，请求体中引用 ${user_id}
+</code></pre>
+    <div class="tip">💡 提示：判断容量拐点的实操方法是阶梯加压——每次加 10 个并发，跑 5 分钟，画出"并发数 vs TPS vs P95"三线图。TPS 不再增长的那一点就是当前容量上限，为它乘以 0.7 得出安全水位。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为本地一个 HTTP 接口编写 JMeter 脚本，要求包含参数化、Token 头和响应断言，能用命令行跑通并生成 HTML 报告。</li>
+      <li><strong>任务 2</strong>：做一次阶梯加压（10/30/50/100 并发），记录每档的 TPS、P95、错误率，画出三线图并指出容量拐点。</li>
+      <li><strong>任务 3</strong>：人为制造一个瓶颈（如在 SQL 里去掉 WHERE 索引条件），用慢查询日志和执行计划把它定位出来。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：写一份 2 页的压测报告，包含目标、环境、场景设计、结果、瓶颈结论和扩容建议。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://jmeter.apache.org/usermanual/" target="_blank">Apache JMeter 官方手册</a> — <span class="desc">组件详解与 Non-GUI 执行参数，写脚本时的权威依据</span></li>
+      <li>📖 <a href="https://jmeter.apache.org/usermanual/generating-dashboard.html" target="_blank">JMeter Dashboard Report 文档</a> — <span class="desc">学会读自动生成的 HTML 报告里每张图的含义</span></li>
+      <li>📖 <a href="https://jmeter-plugins.org/wiki/" target="_blank">JMeter Plugins 官方 Wiki</a> — <span class="desc">实时监控与图表插件（jpgc 系列）的安装与使用，压测时可视化 TPS 与延迟</span></li>
+      <li>📖 <a href="https://jmeter-plugins.org/wiki/PluginsManager/" target="_blank">JMeter Plugins Manager 使用说明</a> — <span class="desc">安装阶梯加压（Stepping Thread Group）等常用插件的标准途径</span></li>
+      <li>📖 <a href="https://dev.mysql.com/doc/refman/8.0/en/slow-query-log.html" target="_blank">MySQL 慢查询日志官方文档</a> — <span class="desc">压测发现数据库瓶颈后的第一步取证工具</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我的压测脚本是否包含断言和参数化？是否用 Non-GUI 模式执行？</li>
+      <li>我能解释 TPS、P95、错误率三个指标的业务含义吗？</li>
+      <li>面对性能劣化，我能按分层顺序在 30 分钟内把怀疑范围缩小到两层以内吗？</li>
+      <li>我的压测结论是否写明了环境差异带来的偏差？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m4-4.html">← 上一节：灰度发布与回滚机制</a>
+    <a href="s4-m5-2.html">下一节：JVM 调优与 SQL 优化 →</a>
+  </div>
+
+</div>
+</body>
+</html>

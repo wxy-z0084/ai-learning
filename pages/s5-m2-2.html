@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>训练数据收集、清洗与格式构造 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段五 · 传统项目智能化升级 / 模块二 · LoRA 微调 / <strong>训练数据收集、清洗与格式构造</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段五 · 传统项目智能化升级</div>
+    <h1>训练数据收集、清洗与格式构造</h1>
+    <div class="meta"><span class="time-chip">预计 1.5 天</span>模块二 · LoRA 微调</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够从<strong>业务日志、专家标注、合成数据、公开数据集</strong>四类来源规划训练数据，并说明合规边界。</li>
+      <li>能够完成<strong>去重、质量过滤、脱敏、长度均衡</strong>四步清洗，量化清洗前后的数据变化。</li>
+      <li>能够把原始样本转成 <strong>Alpaca / ShareGPT</strong> 标准格式，并正确注册进 LLaMA-Factory 的 dataset_info.json。</li>
+      <li>能够划分<strong>训练/验证/测试</strong>三份数据并防止泄漏，给数据集建立版本号。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：四类数据来源与取舍</h3>
+    <p><strong>① 业务日志</strong>：工单与处理结果、人工修订的草稿、审核记录——最真实、免费，但要先脱敏（手机号、身份证、订单金额等 PII 必须掩码）并确认劳动成果的使用授权。<strong>② 专家标注</strong>：质量最高、可定制格式，成本也最高；用<strong>小批量先行</strong>：先标 100 条看模型收益，值得再扩到上千条。<strong>③ 合成数据</strong>：用强模型批量生成"输入→输出"再人工抽检，能把 100 条扩成 5000 条；风险是引入强模型的口癖与错误，务必<strong>混入真实数据</strong>且比例不超过一半。<strong>④ 公开数据集</strong>：补通用能力、防灾难性遗忘，但要核对<strong>许可证</strong>（是否允许商用与二次分发）。经验法则：<strong>数据质量 &gt; 数据数量</strong>，3000 条干净样本通常胜过 5 万条噪声。</p>
+
+    <h3>知识点 2：清洗四步</h3>
+    <p><strong>① 去重</strong>：先精确去重（归一化后哈希），再模糊去重（MinHash/SimHash 或 embedding 相似度 &gt; 0.95 合并）——重复样本会放大少数模式，导致模型过拟合到高频句式。<strong>② 质量过滤</strong>：剔除过短（输出不足 10 字）、过长（远超窗口）、乱码、答案含"我不知道"占位、标签明显错误的样本；抽样人读 50 条定过滤规则。<strong>③ 脱敏与合规</strong>：正则掩码手机号/证件号/邮箱，删除业务敏感字段，保留一份"原始→脱敏"对照以便审计。<strong>④ 长度与类别均衡</strong>：各分类样本量差距不要超过 10 倍，否则模型会偏向多数类；输入输出长度分布要接近真实线上流量。<strong>清洗要写成脚本而不是手工操作</strong>，报告里保留"清洗前 N 条 → 清洗后 M 条，各规则删了多少"。</p>
+
+    <h3>知识点 3：格式构造与切分</h3>
+    <p>主流两种格式：<strong>Alpaca</strong>（单轮：instruction / input / output）适合分类、抽取等单轮任务；<strong>ShareGPT</strong>（多轮：conversations 列表，role 为 human/gpt 交替）适合对话与多轮改写。字段对齐要准确——instruction 是任务指令，input 是待处理内容，别把问题塞进 instruction 造成两列语义混乱。数据切分常用 <strong>90/5/5</strong> 或 8/1/1，测试集只在最终验收时碰一次；<strong>同一业务实体的多条记录必须落在同一侧</strong>（同一工单的两次修改不能一半训练一半测试），否则指标虚高。最后给数据集打版本号并记录生成脚本 commit，微调实验的可复现性从这里开始。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：<strong>清洗 + 格式转换 + 切分</strong>的一体化脚本（Python）。输入 raw.jsonl 每行含 question/answer/category，输出 Alpaca 格式的训练集与验证集：</p>
+<pre><code>import json, hashlib, re, random
+
+random.seed(42)
+PII = [(re.compile(r"1[3-9]\d{9}"), "****手机****"),
+       (re.compile(r"\d{17}[\dXx]"), "****证件****")]
+
+def clean(text: str) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    for pattern, mask in PII:
+        text = pattern.sub(mask, text)
+    return text
+
+def build(raw_path: str):
+    seen, rows, report = set(), [], {"dup": 0, "too_short": 0, "keep": 0}
+    for line in open(raw_path, encoding="utf-8"):
+        r = json.loads(line)
+        q, a = clean(r["question"]), clean(r["answer"])
+        if len(a) &lt; 10:                      # 输出过短：模型学不到东西
+            report["too_short"] += 1
+            continue
+        key = hashlib.md5((q + "||" + a).encode()).hexdigest()
+        if key in seen:                       # 精确去重
+            report["dup"] += 1
+            continue
+        seen.add(key)
+        rows.append({"instruction": f"对下面的工单分类并输出 60 字内摘要，类别从"
+                                    f"物流/退款/质量/账号中选择。\n工单：{q}",
+                     "input": "",
+                     "output": json.dumps({"category": r["category"], "summary": a},
+                                          ensure_ascii=False)})
+        report["keep"] += 1
+
+    random.shuffle(rows)
+    cut = int(len(rows) * 0.9)
+    json.dump(rows[:cut], open("train.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    json.dump(rows[cut:], open("valid.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    print(f"清洗报告：{report}  训练 {cut} / 验证 {len(rows) - cut}")
+
+if __name__ == "__main__":
+    build("raw.jsonl")</code></pre>
+    <p>示例二：注册到 <strong>LLaMA-Factory</strong> 的 data/dataset_info.json，注册后即可在训练配置里按名字引用：</p>
+<pre><code>{
+  "ticket_cls_v1": {
+    "file_name": "ticket_cls_v1.json",
+    "formatting": "alpaca",
+    "columns": {
+      "prompt": "instruction",
+      "query": "input",
+      "response": "output"
+    },
+    "ranking": false
+  },
+  "cs_dialog_v1": {
+    "file_name": "cs_dialog_v1.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations"
+    },
+    "tags_role": true
+  }
+}</code></pre>
+    <div class="tip">💡 交付前跑三条自检：随机抽 20 条人读一遍看答案是否真对；统计类别分布看是否有类别不足 50 条；全局搜一遍确认测试集样本没有出现在训练集里。三条都过，数据才算可用。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：盘点手头可用数据源，列出每个来源的条数、格式、是否有 PII、是否需授权，产出一页数据来源清单。</li>
+      <li><strong>任务 2</strong>：编写清洗脚本，实现脱敏、归一化去重、长度过滤、类别统计，跑通并输出"清洗前 N → 清洗后 M"的规则级报告。</li>
+      <li><strong>任务 3</strong>：把清洗后的数据转成 Alpaca 或 ShareGPT 格式（300 条以上），按 9:1 切分，写好 dataset_info.json 并在 LLaMA-Factory 中确认能被识别。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：用强模型合成 200 条边界样本，人工抽检标注合格率；统计合成数据占比并控制在 50% 以内，说明混入目的。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://huggingface.co/docs/datasets" target="_blank">Hugging Face Datasets 官方文档</a> — <span class="desc">数据加载、map/clean、切分的标准工具，清洗脚本可逐步迁移到它上面。</span></li>
+      <li>📖 <a href="https://huggingface.co/docs/datasets/process" target="_blank">Datasets：Processing data</a> — <span class="desc">去重、映射、抽样与 train_test_split 的官方教程，对应本节清洗与切分。</span></li>
+      <li>📖 <a href="https://github.com/tatsu-lab/stanford_alpaca" target="_blank">Stanford Alpaca</a> — <span class="desc">Alpaca 格式的原始出处，含其数据生成方法，可借鉴做合成数据。</span></li>
+      <li>📖 <a href="https://github.com/hiyouga/LLaMA-Factory" target="_blank">LLaMA-Factory 数据说明</a> — <span class="desc">dataset_info.json 字段与支持格式的权威文档，注册数据集前对照它的示例。</span></li>
+      <li>🛠 <a href="https://labelstud.io/" target="_blank">Label Studio</a> — <span class="desc">开源标注工具，需要专家标注时用它组织小批量标注与复核。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说出四类数据来源各自的成本、质量与合规风险吗？</li>
+      <li>我的清洗有可复现的脚本和规则级统计报告，而不是只靠手工删吗？</li>
+      <li>我的训练/验证/测试三份数据按实体隔离、无泄漏，并打了版本号吗？</li>
+      <li>我的数据集已注册进 dataset_info.json，能被 LLaMA-Factory 正确读取吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s5-m2-1.html">← 上一节：微调场景判断（何时微调 vs RAG）</a>
+    <a href="s5-m2-3.html">下一节：LoRA / QLoRA 原理与参数配置 →</a>
+  </div>
+
+</div>
+</body>
+</html>

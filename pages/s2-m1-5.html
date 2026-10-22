@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数据库操作（SQL / ORM） · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段二 · 智能体开发 / 模块一 · Python 全栈 / <strong>数据库操作（SQL / ORM）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段二 · 智能体开发</div>
+    <h1>数据库操作（SQL / ORM）</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块一 · Python 全栈</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够手写<strong>增删改查</strong>四类 SQL，并用 JOIN、GROUP BY 完成两张表以上的关联统计。</li>
+      <li>能够为业务设计带<strong>主键、外键、唯一约束与索引</strong>的表结构，并说明为什么必须用参数化查询。</li>
+      <li>能够用 <strong>SQLAlchemy 2.0</strong> 完成模型定义、会话管理与 CRUD，读懂 ORM 生成的查询语义。</li>
+      <li>能够用 <strong>Alembic</strong> 管理表结构变更，理解「迁移脚本进版本库」的团队协作要求。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：SQL 基础与安全</h3>
+    <p>关系数据库用<strong>表</strong>组织数据，每行是一条记录、每列是一个字段。核心四句：<strong>INSERT INTO t (cols) VALUES (...)、SELECT 列 FROM t [JOIN u ON ...] [WHERE ...] [GROUP BY ...] [ORDER BY ...] [LIMIT n]、UPDATE t SET 列=值 WHERE 条件、DELETE FROM t WHERE 条件</strong>。写错 WHERE 是生产事故之最，习惯先用 SELECT 把条件跑一遍确认影响行数再执行更新。多表用 <strong>INNER JOIN</strong> 取交集、<strong>LEFT JOIN</strong> 保左表（右表无匹配补 NULL），统计配合 COUNT/SUM 与 HAVING 过滤分组结果。</p>
+    <p>安全红线：<strong>永远不要用字符串拼接 SQL</strong>。拼接会让用户输入变成 SQL 语法（<strong>SQL 注入</strong>），且无法命中缓存计划。正确做法是<strong>参数化查询</strong>——占位符 + 单独的参数列表，由驱动完成转义。另一类风险是<strong>事务</strong>：多步写入要么全部成功要么全部回滚，用 BEGIN/COMMIT/ROLLBACK 或 ORM 的 session 事务边界控制。</p>
+
+    <h3>知识点 2：表设计与索引</h3>
+    <p>设计要点：<strong>主键</strong>唯一标识一行（推荐自增 id 或 UUID）；<strong>外键</strong>表达表间关系并保证引用完整性；<strong>UNIQUE</strong> 约束防重复（如用户名、邮箱）；<strong>NOT NULL</strong>、默认值、CHECK 约束把合法性下沉到数据库。字段类型选准：短文本 varchar、长文本 text、金额用 DECIMAL 而不是 float、时间用 DATETIME/TIMESTAMP 并统一存 UTC。</p>
+    <p><strong>索引</strong>是加速查询的数据结构，代价是写入变慢、占空间。建索引的判断标准：该列经常出现在 WHERE / JOIN / ORDER BY 中且区分度高；最左前缀原则意味着联合索引 <strong>(user_id, created_at)</strong> 能服务 user_id 单独查询，反过来不行。切忌「每列都建索引」，也别对频繁更新的小表建索引。</p>
+
+    <h3>知识点 3：用 SQLAlchemy 2.0 做 ORM</h3>
+    <p><strong>ORM（对象关系映射）</strong>把 Python 类映射为表、实例映射为行，让你用 Python 语法操作数据库。SQLAlchemy 2.0 的写法：<strong>DeclarativeBase</strong> 定义基类，类属性用 <strong>Mapped[...] + mapped_column(...)</strong> 声明类型与约束，查询统一走 <strong>select()</strong> 语句对象，通过 <strong>Session</strong> 执行。会话是「工作单元」：同一事务内的改动会被一起 flush 与 commit。三大坑：① 忘记 commit，改动不会落库；② 在循环里逐条 insert，应改用 <strong>session.add_all</strong> 或 bulk 方式；③ 修改了对象却不 commit 就查询，读到的是会话缓存而非库中真实数据。ORM 生成的 SQL 可用 <strong>print(stmt)</strong> 或开启 echo=True 查看，复杂统计查询直接写原生 SQL 也完全合理——ORM 不是信仰，是工具。</p>
+
+    <h3>知识点 4：迁移与异步访问</h3>
+    <p>表结构变更用 <strong>Alembic</strong> 管理：alembic init 生成配置，alembic revision --autogenerate 对比模型自动生成迁移脚本，alembic upgrade head 应用。迁移脚本必须提交到 git，部署时先升级数据库再发应用。开发期可随时重建的原型库（如 SQLite）可跳过 Alembic，但只要有多人协作或线上数据就必须用。异步场景（配合 FastAPI/asyncio）要用 <strong>async_sessionmaker + create_async_engine</strong>，查询改为 <strong>await session.execute(...)</strong>，否则同步驱动会阻塞事件循环。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：安全的原生 SQL 用法（sqlite3 参数化 + 事务），可直接运行：</p>
+<pre><code>import sqlite3
+
+conn = sqlite3.connect("app.db", check_same_thread=False)
+cur = conn.cursor()
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS message (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+""")
+
+# 参数化：问号占位符，用户输入放在 args 里，天然防注入
+def save_message(user_id: int, content: str) -&gt; int:
+    cur.execute(
+        "INSERT INTO message (user_id, content) VALUES (?, ?)",
+        (user_id, content),
+    )
+    conn.commit()                     # 不 commit 不会落库
+    return cur.lastrowid
+
+def count_by_user(user_id: int) -&gt; int:
+    cur.execute(
+        "SELECT COUNT(*) FROM message WHERE user_id = ?",
+        (user_id,),
+    )
+    return cur.fetchone()[0]
+
+save_message(1, "你好")
+print("该用户消息数：", count_by_user(1))
+conn.close()
+</code></pre>
+    <p>示例二：SQLAlchemy 2.0 风格的模型、会话与关联查询：</p>
+<pre><code>from datetime import datetime
+from sqlalchemy import ForeignKey, String, select, func
+from sqlalchemy.orm import (
+    DeclarativeBase, Mapped, mapped_column, relationship, Session,
+)
+from sqlalchemy import create_engine
+
+class Base(DeclarativeBase):
+    pass
+
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True)
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+class Message(Base):
+    __tablename__ = "messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    content: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    user: Mapped[User] = relationship(back_populates="messages")
+
+engine = create_engine("sqlite:///app.db", echo=True)
+Base.metadata.create_all(engine)
+
+with Session(engine) as session:
+    alice = User(name="alice",
+                 messages=[Message(content="第一条"), Message(content="第二条")])
+    session.add(alice)                # 级联插入两条消息
+    session.commit()
+
+    # 等价 SQL：SELECT users.name, COUNT(messages.id) ... GROUP BY ...
+    stmt = (
+        select(User.name, func.count(Message.id))
+        .join(Message, Message.user_id == User.id)
+        .group_by(User.name)
+        .order_by(func.count(Message.id).desc())
+    )
+    for name, cnt in session.execute(stmt):
+        print(name, cnt)
+</code></pre>
+    <div class="tip">💡 提示：看不懂 ORM 在干什么时，打开 echo=True 看它打印的真实 SQL——这是最快的 ORM 学习法，也能帮你发现 N+1 查询（循环里逐条查关联数据，应改用 joinedload 或一次 JOIN）。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：用 sqlite3 建三张表（users、sessions、messages），写参数化 SQL 完成「注册用户 → 发 5 条消息 → JOIN 查询每用户消息数并按数量倒序」的完整流程。</li>
+      <li><strong>任务 2</strong>：故意用字符串拼接把输入 "' OR 1=1 --" 拼进查询，复现注入后果；再改成参数化写法证明攻击失效，写下你的理解。</li>
+      <li><strong>任务 3</strong>：用 SQLAlchemy 2.0 定义一对多模型，实现新增、按条件分页查询（limit/offset）、级联删除，并打印出 ORM 实际生成的 SQL。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：为任务 3 的模型引入 Alembic：autogenerate 生成首个迁移、upgrade 应用、再新增一个字段生成第二个迁移，验证 upgrade/downgrade 双向可执行。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://docs.sqlalchemy.org/en/20/tutorial/index.html" target="_blank">SQLAlchemy 2.0 官方教程</a> — <span class="desc">从建表到 ORM 查询的完整示例，写法与本节完全一致，照着敲一遍即可上手。</span></li>
+      <li>📖 <a href="https://www.sqlite.org/docs.html" target="_blank">SQLite 官方文档</a> — <span class="desc">本地开发零配置数据库，datatype、限制与 CLI 用法都有中文社区译本。</span></li>
+      <li>📖 <a href="https://www.postgresql.org/docs/" target="_blank">PostgreSQL 官方文档</a> — <span class="desc">生产级数据库手册，「教程 + SQL 语言」两章适合系统补齐 SQL 功底。</span></li>
+      <li>📖 <a href="https://alembic.sqlalchemy.org/" target="_blank">Alembic 官方文档</a> — <span class="desc">迁移工具的配置、autogenerate 与多环境部署说明，做表结构变更必读。</span></li>
+      <li>📖 <a href="https://sqlmodel.tiangolo.com/" target="_blank">SQLModel 文档</a> — <span class="desc">FastAPI 作者出品，把 Pydantic 与 SQLAlchemy 模型合二为一，适合本课程后续项目。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能手写一条带 LEFT JOIN 和 GROUP BY 的查询，并解释每部分的作用吗？</li>
+      <li>我能说清 SQL 注入的原理，并保证自己写的每条查询都是参数化的吗？</li>
+      <li>我知道什么时候该建索引、联合索引的最左前缀是什么含义吗？</li>
+      <li>我能解释 ORM 中 commit 的时机、N+1 查询的成因，以及迁移脚本为什么要进版本库吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s2-m1-4.html">← 上一节：前端基础（HTML/CSS/JS、Streamlit）</a>
+    <a href="s2-m2-1.html">下一节：路由、请求与响应模型（Pydantic） →</a>
+  </div>
+
+</div>
+</body>
+</html>

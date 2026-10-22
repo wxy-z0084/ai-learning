@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>服务拆分原则与设计 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块一 · 微服务架构 / <strong>服务拆分原则与设计</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>服务拆分原则与设计</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块一 · 微服务架构</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说清微服务拆分<strong>换来什么、付出什么</strong>，避免"为了拆而拆"。</li>
+      <li>能够按<strong>业务能力 / 领域子域</strong>完成一次领域划分，产出服务清单、数据归属与上下游接口契约。</li>
+      <li>能够识别并纠正四类典型坏味道：按技术层拆分、拆分过细、共享数据库、分布式单体。</li>
+      <li>能够判断一个新系统该"先单体后拆分"还是"直接微服务"，并给出演进路线。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：拆分的收益与代价</h3>
+    <p>微服务拆分的核心收益是<strong>独立演进</strong>：每个服务有自己的代码库、数据库、发布节奏，可以按负载独立扩容，故障影响范围被限制在单个服务内，小团队对单个服务端到端负责（康威定律：组织结构会映射到系统结构）。但代价同样真实：单机方法调用变成<strong>网络调用</strong>，你必须处理超时、重试、幂等、网络抖动；跨服务数据一致性从本地事务变成分布式事务；部署、监控、排障的复杂度成倍上升。判断准则：<strong>团队规模小于 10 人、业务尚未稳定、没有独立扩容诉求时，模块化单体往往是更省成本的选择</strong>——微服务是组织与规模问题的解法，不是技术先进性的勋章。</p>
+
+    <h3>知识点 2：怎么拆——按业务边界，不按技术分层</h3>
+    <p>拆分的黄金法则是<strong>按业务能力（或 DDD 的限界上下文）切分</strong>：先列出系统的核心业务动词（下单、履约、结算、退款），每个内聚的业务能力对应一个服务，服务内部再分层。与之相反的<strong>按技术层拆分</strong>（专门的 controller 服务、service 服务、message 服务）是经典反模式——任何业务改动都要横穿所有服务，等于把单体的耦合换成了网络版。判断边界是否切对有三个实用信号：<strong>① 数据归属</strong>——每张表只能有一个服务拥有，其他服务要数据走接口而非直连它的库；<strong>② 变更内聚性</strong>——需求变更通常只落在一个服务里；<strong>③ 团队对齐</strong>——一个服务能被一个两人小组维护。此外要遵循<strong>渐进式拆分</strong>：先在单体内用模块划清边界、定义好接口，等边界稳定、出现独立扩容或独立发布诉求时再拆出去，避免一次性大爆炸重构。</p>
+
+    <h3>知识点 3：四类典型坏味道</h3>
+    <p><strong>① 拆分过细（纳米服务）</strong>——服务数量远超团队认知带宽，一次页面改动要协调五六个仓库，此时应合并同生共死的服务；<strong>② 共享数据库</strong>——多个服务直连同一库表，拆分名存实亡，任何表结构变更都要多方评估，必须尽快改为"数据私有 + 接口授权"；<strong>③ 分布式单体</strong>——服务间同步调用链过长（A→B→C→D），改一个业务要全链路发版，等价于把单体拆碎再用网络焊起来；<strong>④ 忽略非功能边界</strong>——把强一致要求的高频交易拆到两个服务，埋下分布式事务地雷。设计评审时逐条对照这四点，基本能拦住大部分低级错误。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：一份可评审的<strong>服务清单</strong>（YAML）。每个服务写清职责、数据所有权、同步/异步接口与规模预估——这份文件就是后续注册中心、网关、权限设计的输入：</p>
+<pre><code># service-inventory.yaml —— 订单履约系统拆分设计（节选）
+services:
+  - name: order-service            # 订单服务
+    capability: 下单、订单查询、取消     # 按业务能力命名，不叫 order-crud
+    owns_tables: [orders, order_items, order_status_log]  # 数据私有，别人不可直连
+    apis:
+      sync:   ["POST /orders", "GET /orders/{id}"]
+      events: ["order.created", "order.cancelled"]        # 跨服务走消息
+    consumers: [payment-service, fulfillment-service]
+    scale_hint: 峰值 3000 QPS，需独立水平扩容
+
+  - name: payment-service
+    capability: 支付、退款、支付对账
+    owns_tables: [payments, refunds, payment_flow]
+    apis:
+      sync:   ["POST /payments/execute", "POST /refunds"]
+      events: ["payment.succeeded", "refund.finished"]
+    consistency: 与库存的扣减不做强一致，走最终一致性（本地消息表）
+
+  - name: fulfillment-service
+    capability: 履约单生成、仓库分配、发货
+    owns_tables: [fulfillments, shipments]
+    apis:
+      sync:   ["POST /fulfillments", "PUT /fulfillments/{id}/ship"]
+      events: ["shipment.dispatched"]
+
+# 禁止事项（写进评审清单）
+boundaries:
+  - 禁止跨服务直连对方数据库，读也要走 API 或只读副本
+  - 同步调用链长度 ≤ 3，超出改异步事件
+  - 表与服务的归属关系变更需架构评审</code></pre>
+    <p>示例二：同一需求的两种拆法对比——"按技术层"是反模式，"按业务能力"是正解：</p>
+<pre><code># ❌ 按技术层拆（坏）：一个改价需求要横穿 4 个服务、4 个团队
+services: [api-gateway-service, business-service, data-service, job-service]
+
+# ✅ 按业务能力拆（好）：改价只落在 pricing-service 一个仓库内
+services:
+  - { name: pricing-service,    capability: 商品定价、改价、价格策略 }
+  - { name: inventory-service,  capability: 库存扣减、库存预占 }
+  - { name: cart-service,       capability: 购物车、凑单优惠计算 }
+
+# 边界体检：把最近 10 个需求记到服务上
+# 若某个服务承接了 7 个以上 → 拆分不足；若多数需求跨 3 个以上服务 → 拆分过碎</code></pre>
+    <div class="tip">💡 评审拆分方案时问三个问题：这张表归谁？这个需求要改几个服务？这条调用链断了业务还能不能下单？答不清就先别拆。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为你负责的系统（或一个熟悉的电商场景）列出 5–8 个业务能力，画出限界上下文草图，标出每个上下文的核心实体与上下游关系。</li>
+      <li><strong>任务 2</strong>：按示例一产出 service-inventory.yaml：每个服务写职责、表归属、同步/异步接口、消费方，总数控制在 10 个以内并说明依据。</li>
+      <li><strong>任务 3</strong>：审计现有系统四个坏味道——找出共享数据库的表、超过 3 跳的同步调用链、被 7 个以上需求命中的服务，各写一条整改方案。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：给你的拆分方案补一页"演进路线"：第 1 阶段模块化单体、第 2 阶段拆出高变更服务、第 3 阶段全量微服务，并写明每次拆分的触发条件。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://martinfowler.com/microservices/" target="_blank">Martin Fowler: Microservices</a> — <span class="desc">微服务定义与特征的原始出处，读完能准确回答"什么才算微服务"。</span></li>
+      <li>📖 <a href="https://microservices.io/patterns/index.html" target="_blank">Microservices Patterns</a> — <span class="desc">拆分、数据一致性、链路设计的模式合集，配合 Chris Richardson 的拆分章节使用。</span></li>
+      <li>📖 <a href="https://samnewman.io/" target="_blank">Sam Newman（《Building Microservices》作者）官网</a> — <span class="desc">渐进式拆分、单体优先等实战观点的权威来源。</span></li>
+      <li>📖 <a href="https://spring.io/projects/spring-boot" target="_blank">Spring Boot 官方项目页</a> — <span class="desc">本模块后续动手实践的基础框架，先确认版本与快速开始指南。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能用"收益 vs 代价"向业务方解释为什么这个系统现在该/不该拆吗？</li>
+      <li>我能指出按技术层拆分坏在哪里，并用数据归属、变更内聚、团队对齐三个信号判断边界吗？</li>
+      <li>我的服务清单里，每张表有唯一属主、同步调用链不超过 3 跳吗？</li>
+      <li>我能给方案写出分阶段的演进路线与每次拆分的触发条件吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m4-4.html">← 上一节：低代码与 AI 能力集成</a>
+    <a href="s4-m1-2.html">下一节：注册中心与配置中心（Nacos） →</a>
+  </div>
+
+</div>
+</body>
+</html>

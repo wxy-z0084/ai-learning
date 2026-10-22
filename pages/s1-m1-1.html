@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>账号注册与工作区管理 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块一 · Coze 平台使用 / <strong>账号注册与工作区管理</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>账号注册与工作区管理</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块一 · Coze 平台使用</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够独立完成扣子（Coze，coze.cn）账号注册、实名认证，并理解国内版与海外版（coze.com）的差异。</li>
+      <li>能够创建个人/团队工作区，说明<strong>个人空间</strong>与<strong>团队空间</strong>在协作、权限上的区别。</li>
+      <li>能够为工作区添加协作成员、设置角色权限，完成一个最小可用的团队协作环境搭建。</li>
+      <li>能够理解扣子的资源层级（工作区 → Bot / 插件 / 工作流 / 知识库），为后续开发打好组织基础。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：注册、登录与实名认证</h3>
+    <p>扣子国内版官网为 <strong>https://www.coze.cn</strong>，支持手机号验证码注册，也可以用抖音、飞书、微信等账号授权登录；海外版 coze.com 面向海外用户，两者<strong>账号体系、模型资源和发布渠道都不互通</strong>，本课程统一使用国内版。注册完成后建议第一时间做实名认证（个人或企业认证均可），因为实名等级直接决定<strong>资源配额</strong>：可创建的 Bot 数量、知识库容量、以及能调用的模型范围都与账号等级挂钩，未认证账号很多高级功能会受限。</p>
+    <p>常见坑：用海外版注册后发现没有微信发布渠道，或者用团队邮箱注册后人员无法互见——根源都是选错了版本或注册主体，建议开工前先和团队确认统一用 coze.cn。</p>
+
+    <h3>知识点 2：个人空间 vs 团队空间</h3>
+    <p>登录后左侧就是<strong>工作区</strong>列表。<strong>个人空间</strong>适合快速实验：创建的 Bot、插件、知识库只有你自己可见可编辑，资源按个人配额计算。<strong>团队空间</strong>面向多人协作：由空间所有者创建，通过<strong>邀请成员</strong>加入，成员按角色获得权限。扣子的空间角色通常包括<strong>所有者（Owner）</strong>、<strong>管理员（Admin）</strong>、<strong>普通成员（Member）</strong>和<strong>访客（Guest）</strong>：所有者掌握空间设置与成员管理，管理员可管理大部分资源，普通成员可创建和编辑自己权限内的资源，访客一般只读。</p>
+    <p>操作要点：先把未来要一起开发 Bot 的同事拉进团队空间，再开始建资源；如果在个人空间建完再迁移，会遇到权限继承丢失、资源无法跨空间转移的麻烦。</p>
+
+    <h3>知识点 3：资源层级与配额管理</h3>
+    <p>工作区是所有资源的容器，内部包含 <strong>Bot（智能体）</strong>、<strong>插件</strong>、<strong>工作流</strong>、<strong>知识库</strong>、<strong>数据库</strong>、<strong>记忆</strong>等资源，它们<strong>共享工作区上下文</strong>：同一空间内的 Bot 可以直接引用该空间下的插件、工作流和知识库，跨空间引用则需要额外的共享机制。因此合理的组织方式是：<strong>一个业务场景对应一个工作区</strong>，比如「客服机器人」和「内部数据助手」分属两个空间，避免资源互相污染。</p>
+    <p>配额方面，重点盯住三个上限：<strong>知识库存储容量</strong>（按字符/文件大小计）、<strong>工作流每日执行次数</strong>（影响 Bot 调用量）、<strong>模型调用额度</strong>。个人版额度有限，建议开发期用小数据集联调，正式上线前再扩容。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>下面是一份可直接照做的「从零到团队协作环境」操作清单，按顺序执行约 30 分钟即可完成：</p>
+<pre><code># 扣子（coze.cn）工作区初始化清单（浏览器操作，无代码）
+
+1. 打开 https://www.coze.cn → 手机号注册 → 完成个人实名认证
+2. 点击左上角头像 → 「切换空间」→ 「创建团队空间」
+   - 空间名称：AI客服机器人项目
+   - 描述：内部客服场景，Bot 对外发布到微信客服
+3. 进入团队空间 → 「成员管理」→ 「邀请成员」
+   - 输入同事手机号/邮箱 → 角色选择「管理员」（核心开发）
+   - 普通运营同事角色选「普通成员」
+4. 空间设置 → 资源配额页：记录知识库容量上限、工作流执行上限
+5. 左侧导航依次点开：Bot / 插件 / 工作流 / 知识库，确认初始为空
+</code></pre>
+    <p>如果你倾向用 API 或脚本方式管理组织资源，扣子开放平台也提供 OpenAPI（如通过 access token 查询工作区资源列表），可以像下面这样做一个配额巡检脚本的雏形：</p>
+<pre><code>import os
+import requests
+
+# 在 https://www.coze.cn/open/oauth/apps 创建应用获取 Personal Access Token
+COZE_TOKEN = os.environ["COZE_TOKEN"]
+BASE = "https://api.coze.cn"
+
+def list_bots(page_size=20):
+    """列出当前 token 归属空间下的 Bot，用于核对资源是否建在正确的工作区"""
+    resp = requests.post(
+        f"{BASE}/v1/spaces/bots",
+        headers={"Authorization": f"Bearer {COZE_TOKEN}"},
+        json={"page_index": 1, "page_size": page_size},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    bots = data.get("data", {}).get("bots", [])
+    for b in bots:
+        print(f"Bot 名称: {b.get('bot_name')}  状态: {b.get('status')}  空间: {b.get('space_id')}")
+    return bots
+
+if __name__ == "__main__":
+    list_bots()
+</code></pre>
+    <div class="tip">💡 提示：Personal Access Token 等同于账号密码，务必存放在环境变量中，不要提交进代码仓库；团队场景建议给每个开发者发独立 Token，便于审计与吊销。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：注册 coze.cn 账号并完成实名认证，截图记录你的账号等级与当前各项资源配额数字。</li>
+      <li><strong>任务 2</strong>：创建一个名为「AI学习实验」的团队空间，把你的另一个手机号或一位同学邀请为「普通成员」，再自行升级为「管理员」，验证权限差异（如访客能否编辑 Bot）。</li>
+      <li><strong>任务 3</strong>：在该空间下建一个空白 Bot 占位（名字随意），然后建一个知识库，观察两者是否出现在同一空间的资源列表中，验证资源共享关系。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：在开放平台创建一个应用拿到 Personal Access Token，用上面的 Python 脚本列出空间内的 Bot，确认 API 与界面看到的资源一致。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://www.coze.cn/docs" target="_blank">扣子官方文档</a> — <span class="desc">入门、空间管理、资源配额的权威说明，遇到界面变动以这里为准。</span></li>
+      <li>📖 <a href="https://www.coze.cn/store" target="_blank">扣子 Bot 商店</a> — <span class="desc">浏览社区优秀 Bot，感受不同场景下资源组织方式，注册后即可访问。</span></li>
+      <li>📖 <a href="https://www.coze.cn/open" target="_blank">扣子开放平台</a> — <span class="desc">OpenAPI 与 Personal Access Token 的申请入口，做自动化管理时用。</span></li>
+      <li>📖 <a href="https://www.feishu.cn" target="_blank">飞书官网</a> — <span class="desc">扣子国内版与飞书生态深度集成，团队协作账号可直接打通。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清个人空间与团队空间在协作和配额上的三个区别吗？</li>
+      <li>我能独立完成「建团队空间 → 邀请成员 → 设角色」的全流程吗？</li>
+      <li>我知道自己的知识库容量和工作流执行上限在哪里查看吗？</li>
+      <li>我能解释为什么「一个业务场景对应一个工作区」是推荐做法吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a class="disabled" href="#">← 上一节</a>
+    <a href="s1-m1-2.html">下一节：Bot 创建与人设配置 →</a>
+  </div>
+
+</div>
+</body>
+</html>

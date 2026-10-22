@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>单元测试与接口文档（Knife4j）· AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段三 · 软件工程化 / 模块二 · 企业级单体项目开发 / <strong>单元测试与接口文档（Knife4j）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段三 · 软件工程化</div>
+    <h1>单元测试与接口文档（Knife4j）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块二 · 企业级单体项目开发</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>学完本节后，你能够解释测试金字塔，并为 Service 层写出不依赖 Spring 容器的快速单元测试。</li>
+      <li>你能够使用 JUnit 5 的断言、生命周期方法与参数化测试组织测试代码。</li>
+      <li>你能够用 Mockito 替换 DAO 等外部依赖，验证边界条件与异常分支。</li>
+      <li>你能够配置 Knife4j（springdoc-openapi）生成可在线调试的接口文档，并规范地补充接口注解。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：测试金字塔与 JUnit 5 基础</h3>
+    <p>测试金字塔从下到上是：<strong>单元测试（多、快、稳）→ 集成测试（验证组件协作）→ 端到端/E2E（少而慢）</strong>。单元测试不启动 Spring 容器、不连数据库，一个测试方法毫秒级完成，这是"测试能天天跑"的前提。JUnit 5 的核心注解：@Test 标记测试方法、@BeforeEach/@AfterEach 做准备与清理、@DisplayName 起中文名、@ParameterizedTest + @ValueSource 做参数化（同一逻辑跑多组数据）、Assertions.assertEquals/assertInstanceOf/ assertThrows 断言结果与异常。命名规范建议"方法名_场景_期望"，如 create_order_whenAmountNull_shouldThrow。</p>
+
+    <h3>知识点 2：Mockito 打桩与 Spring 测试切片</h3>
+    <p>Service 依赖 Mapper 时，用 <strong>Mockito</strong> 把依赖换成"替身"：@Mock 声明、@InjectMocks 注入被测对象、when(...).thenReturn(...) 打桩、verify(...) 断言交互（比如验证删除缓存的方法确实被调用过一次）。异常分支（如"订单不存在应抛 BizException"）就这样测出来，而这恰恰是手工测试最容易漏的部分。</p>
+    <p>需要验证"注解 + 拦截器 + JSON 转换"整体行为时用 Spring 的<strong>切片测试</strong>：@WebMvcTest 只加载 Controller 相关组件，配合 MockMvc 发送虚拟请求，@MockBean（新版为 @MockitoBean）补齐依赖；@SpringBootTest 则启动完整容器，配合 H2 内存库或 <strong>Testcontainers</strong> 起真实数据库做集成测试，速度慢，数量要控制。常用技巧：集成测试类上加 @Transactional，每个测试跑完自动回滚，避免测试数据污染库。</p>
+
+    <h3>知识点 3：Knife4j 与 OpenAPI 文档</h3>
+    <p>接口文档的行业标准是 <strong>OpenAPI 3</strong> 规范，Spring 项目用 springdoc-openapi 从注解自动生成 JSON 描述，<strong>Knife4j</strong> 在其之上提供了更好用的中文 UI（搜索、调试、离线文档导出）。引入依赖后访问 /doc.html 即可。注解规范：类上 @Tag(name="订单管理")，方法上 @Operation(summary="创建订单")，出参用 @Schema 描述字段，错误响应统一在全局响应配置里声明。文档的价值在于<strong>与代码同步</strong>：注解写在方法签名旁，重构时随手就改；若文档靠 Word 手工维护，两周内必然过期。生产环境务必在配置中关闭文档暴露（knife4j.production=true 或按环境开关）。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：Service 层单元测试（纯 Mockito，不启动容器，毫秒级执行）：</p>
+<pre><code>class OrderServiceTest {
+
+    @Mock private OrderMapper orderMapper;
+    @InjectMocks private OrderService orderService;
+
+    @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+    }
+
+    @Test
+    @DisplayName("订单不存在时应抛出业务异常")
+    void detail_shouldThrow_whenOrderNotFound() {
+        when(orderMapper.selectById(999L)).thenReturn(null);
+
+        BizException ex = assertThrows(BizException.class,
+                () -&gt; orderService.detail(999L));
+        assertEquals("订单不存在:999", ex.getMessage());
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1L, 2L, 3L})
+    @DisplayName("存在订单时应正常返回")
+    void detail_shouldReturn(Long id) {
+        Order order = new Order();
+        order.setId(id);
+        when(orderMapper.selectById(id)).thenReturn(order);
+
+        assertEquals(id, orderService.detail(id).getId());
+        verify(orderMapper).selectById(id);   // 验证 DAO 确实被调用
+    }
+}
+</code></pre>
+    <p>示例二：Knife4j 配置与 Controller 注解，配套 pom 依赖为 org.springdoc:springdoc-openapi-starter-webmvc-ui，Knife4j 依赖为 com.github.xiaominfo:knife4j-openapi3-spring-boot-starter：</p>
+<pre><code>springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    enabled: true
+knife4j:
+  enable: true
+  production: false     # 生产环境务必改为 true
+
+// Controller 上补充文档注解
+@RestController
+@RequestMapping("/orders")
+@Tag(name = "订单管理", description = "订单的增删改查与状态流转")
+@RequiredArgsConstructor
+public class OrderController {
+
+    @PostMapping
+    @Operation(summary = "创建订单", description = "返回新订单 ID，金额单位为分")
+    public R&lt;Long&gt; create(@Valid @RequestBody OrderCreateDTO dto) {
+        return R.ok(orderService.create(dto));
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "订单详情")
+    public R&lt;OrderVO&gt; detail(@Parameter(description = "订单 ID") @PathVariable Long id) {
+        return R.ok(orderService.detail(id));
+    }
+}
+</code></pre>
+    <div class="tip">💡 提示：先跑 mvn test 让测试进 CI，再谈覆盖率；文档注解只写"看代码猜不到"的信息（含义、单位、取值范围），不要复述字段名本身。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：为前面分层练习中的 Service 写 5 个以上单元测试，覆盖正常流程、空值、非法参数三类分支，全部用 Mockito 打桩。</li>
+      <li><strong>任务 2</strong>：用 @WebMvcTest + MockMvc 写一个 Controller 测试，断言返回状态码、响应 JSON 中的 code 与关键字段。</li>
+      <li><strong>任务 3</strong>：给项目所有 Controller 补齐 @Tag/@Operation/@Schema 注解，启动后在 Knife4j 页面完成一次带参在线调试。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：在 Maven 中配置 maven-surefire-plugin 与 jacoco，让 mvn test 输出覆盖率报告，并把测试步骤写进 CI 流水线。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://junit.org/junit5/docs/current/user-guide/" target="_blank">JUnit 5 官方用户指南</a> — <span class="desc">断言、生命周期、参数化测试的完整参考，测试代码规范的出处</span></li>
+      <li>📖 <a href="https://site.mockito.org/" target="_blank">Mockito 官网</a> — <span class="desc">打桩、验证交互、@Spy 的用法与常见陷阱</span></li>
+      <li>📖 <a href="https://springdoc.org/" target="_blank">springdoc-openapi 官网</a> — <span class="desc">Knife4j 底层的注解扫描与配置项说明，排查文档缺失看这里</span></li>
+      <li>📖 <a href="https://github.com/xiaominfo/knife4j" target="_blank">Knife4j GitHub 仓库</a> — <span class="desc">版本变更、启动配置与已知问题的权威来源</span></li>
+      <li>🛠 <a href="https://testcontainers.com/" target="_blank">Testcontainers</a> — <span class="desc">用 Docker 起真实数据库做集成测试，解决"测试库和生产行为不一致"</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说清单元测试、切片测试、集成测试的区别与各自的启动成本吗？</li>
+      <li>我能用 Mockito 写出覆盖异常分支的测试，并解释 verify 与 thenReturn 的差别吗？</li>
+      <li>我的项目能否一条命令（mvn test）跑完全部测试并给出结果？</li>
+      <li>我的接口文档是否由注解自动生成、能在线调试，且在生产环境已关闭？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s3-m2-4.html">← 上一节：缓存（Redis）、任务调度（Quartz）</a>
+    <a href="s3-m3-1.html">下一节：调用大模型 API（OpenAI / 国产大模型） →</a>
+  </div>
+
+</div>
+</body>
+</html>

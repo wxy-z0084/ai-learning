@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分布式事务（Seata、最终一致性）· AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块二 · 分布式方案 / <strong>分布式事务（Seata、最终一致性）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>分布式事务（Seata、最终一致性）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块二 · 分布式方案</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说清单机事务与分布式事务的差异，用 <strong>CAP / BASE 理论</strong>解释为什么分布式场景大多追求"最终一致"。</li>
+      <li>能够基于 Seata 完成一个跨服务转账示例：搭建 TC 服务端、在客户端加 <code>@GlobalTransactional</code>、建好 undo_log 表并验证回滚。</li>
+      <li>能够设计一套<strong>本地消息表 + 定时重试</strong>的最终一致性方案，并说明幂等消费、补偿、对账三个兜底手段。</li>
+      <li>能够根据业务场景在 AT、TCC、Saga、XA 之间做出合理选型，并指出各自的代价。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：为什么需要分布式事务</h3>
+    <p>传统单体应用里，一个数据库连接内的多个 SQL 可以靠 <strong>ACID</strong> 事务整体提交或回滚。但服务拆分后，订单库、库存库、账户库往往分属不同实例甚至不同机房，数据库层面的事务无法跨越多个数据源，于是"下单成功但扣款失败"这类不一致就出现了。</p>
+    <p>分布式系统受 <strong>CAP 定理</strong>约束：网络分区不可避免时，只能在一致性（C）和可用性（A）间取舍。多数业务互联网系统选择 AP + <strong>BASE 理论</strong>（基本可用、软状态、最终一致）：允许短时间不一致，但必须给出最终对齐的机制（重试、补偿、对账）。设计时先问自己：这个不一致窗口业务能不能容忍？不能容忍才考虑强一致方案（Seata AT/TCC/XA），能容忍就优先最终一致（本地消息表、事务消息），因为后者的吞吐和复杂度都低得多。</p>
+
+    <h3>知识点 2：Seata 的四种模式</h3>
+    <p><strong>Seata</strong>（Simple Extensible Autonomous Transaction Architecture）是开源分布式事务框架，由 TC（事务协调器，独立部署）、TM（事务管理器，发起方）、RM（资源管理器，管理分支事务）三大组件构成。最常用的 <strong>AT 模式</strong>是无侵入的两阶段提交：一阶段业务 SQL 与"回滚日志"（undo_log）一起提交；二阶段若提交则异步清理日志，若回滚则用 undo_log 反向补偿。AT 的代价是全局锁——事务期间同一行数据的并发写会被串行化，高并发热点场景会明显拖慢写入。</p>
+    <p><strong>TCC 模式</strong>要求业务实现 Try（预留资源）、Confirm（确认）、Cancel（撤销）三个接口，资源预留期内其他事务无法占用，性能最好但侵入性最强，适合库存扣减、账户冻结类场景。<strong>Saga 模式</strong>为每个长事务定义正向操作与补偿操作，适合流程长、无资源预留需求的业务（如履约审批流）。<strong>XA 模式</strong>依赖数据库的 XA 协议做强一致两阶段提交，隔离性最好但锁持有时间长，吞吐最低，一般只用于金融核心库对接。</p>
+    <p>常见坑：AT 模式下大事务（一次更新几千行）会拖垮 undo_log 表与全局锁；自增主键、唯一索引冲突在回滚时可能报"脏数据"；Seata 要求业务表必须有主键，且不支持部分 SQL（如 <code>SELECT ... FOR UPDATE</code> 需要单独评估）。</p>
+
+    <h3>知识点 3：最终一致性的通用套路</h3>
+    <p>不引入 Seata 也能解决 80% 的跨服务一致性问题，核心是<strong>把"同时成功"变成"先本地成功，再异步送达"</strong>。经典做法是<strong>本地消息表</strong>：业务写库与消息写入同一个本地事务，后台定时任务扫描"待发送"消息投递到 MQ，消费方处理成功后回写状态；配合<strong>唯一业务单号做幂等</strong>（消费端去重表或 Redis SETNX），失败则按指数退避重试，重试超限转人工，并定期用对账任务比对两边数据。RocketMQ 的<strong>事务消息</strong>（半消息机制）是该模式的托管版，省掉自己写扫描任务。</p>
+    <p>无论选哪种方案，三个兜底不可少：<strong>幂等</strong>（消息可能重复）、<strong>补偿</strong>（有正向就得有反向操作）、<strong>对账</strong>（任何机制都可能漏，T+1 对账是最后防线）。监控上要给"消息积压数、重试次数、事务回滚数"打点告警。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：Seata AT 模式的 Java 客户端关键代码。订单服务创建订单时同时调用账户服务扣款，任一环节异常则全局回滚。</p>
+<pre><code>// 订单服务：加入全局事务注解即可，无需写回滚逻辑
+@Service
+public class OrderService {
+
+    @Autowired
+    private OrderMapper orderMapper;
+    @Autowired
+    private AccountClient accountClient; // Feign 调用账户服务
+
+    @GlobalTransactional(name = "create-order", rollbackFor = Exception.class)
+    public void createOrder(Long userId, Long productId, BigDecimal amount) {
+        orderMapper.insert(new Order(userId, productId, amount, "CREATED"));
+        // 若这里抛异常，Seata 会回滚订单表的一阶段提交
+        accountClient.deduct(userId, amount);
+    }
+}</code></pre>
+    <p>每个接入 Seata 的数据库都要建回滚日志表（以 MySQL 为例），并配置数据源为 Seata 的代理数据源：</p>
+<pre><code>CREATE TABLE `undo_log` (
+  `branch_id`     BIGINT       NOT NULL COMMENT 'branch transaction id',
+  `xid`           VARCHAR(128) NOT NULL COMMENT 'global transaction id',
+  `context`       VARCHAR(128) NOT NULL COMMENT 'undo_log context, such as serialization',
+  `rollback_info` LONGBLOB     NOT NULL COMMENT 'rollback info',
+  `log_status`    INT(11)      NOT NULL COMMENT '0: normal, 1: defense',
+  `log_created`   DATETIME(6)  NOT NULL COMMENT 'create datetime',
+  `log_modified`  DATETIME(6)  NOT NULL COMMENT 'modify datetime',
+  UNIQUE KEY `ux_undo_log` (`xid`, `branch_id`)
+) ENGINE = InnoDB COMMENT = 'AT transaction undo log';</code></pre>
+    <div class="tip">💡 本地跑示例最快的方式是用 Seata 官方仓库里的 docker-compose 一键启动 TC（seata-server，默认 8091 端口），客户端配置 registry.conf / application.yml 指向它即可；数据库的 <code>undo_log</code> 表漏建是一阶段直接报错的最常见原因。</div>
+    <p>示例二：不用框架的本地消息表方案——订单库同事务写消息，定时任务投递并做幂等消费（Python 伪生产代码，SQL 换成你的 ORM 即可）：</p>
+<pre><code>import time, json, requests
+
+def create_order_with_message(order_id, user_id, amount):
+    with db.transaction():  # 同一个本地事务
+        db.execute("INSERT INTO orders(id,user_id,amount,status) VALUES (%s,%s,%s,'CREATED')",
+                   (order_id, user_id, amount))
+        db.execute("INSERT INTO outbox_msg(id,biz_id,type,payload,status) VALUES (%s,%s,'DEDUCT',%s,'PENDING')",
+                   (order_id, order_id, json.dumps({"userId": user_id, "amount": str(amount)})))
+
+def pump_outbox():
+    rows = db.query("SELECT id,payload FROM outbox_msg WHERE status='PENDING' ORDER BY id LIMIT 50")
+    for row in rows:
+        try:
+            r = requests.post("http://account-service/deduct", json=json.loads(row.payload), timeout=2)
+            if r.status_code == 200:  # 消费端按 biz_id 去重，重复投递无副作用
+                db.execute("UPDATE outbox_msg SET status='SENT' WHERE id=%s", (row.id,))
+        except Exception:
+            time.sleep(1)  # 失败留待下一轮；可加 retry_count 字段做分级告警</code></pre>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：按 Seata 官方快速开始启动 seata-server + MySQL，写一个两服务（订单/账户）示例，在账户服务里人为抛异常，用日志与 undo_log 表验证全局回滚生效。</li>
+      <li><strong>任务 2</strong>：把上面示例的全局事务改成手工补偿版（不用 Seata）：失败时调用补偿接口并记录补偿日志，对比两种方案的代码侵入度与吞吐差异。</li>
+      <li><strong>任务 3</strong>：为本地消息表方案补齐 retry_count、next_retry_at 字段，实现指数退避重试与失败转人工表，并写一条 SQL 对账语句找出"订单已创建但消息未发送"的数据。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：用 JMH 或压测工具对比同一接口在开启/关闭 Seata AT 时的 TPS，观察全局锁造成的性能损耗，记录结论。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://seata.io/zh-cn/docs/" target="_blank">Seata 官方中文文档</a> — <span class="desc">四种模式的原理、部署与客户端配置的第一手资料，本节示例的权威出处。</span></li>
+      <li>📖 <a href="https://github.com/apache/incubator-seata" target="_blank">Apache Seata GitHub 仓库</a> — <span class="desc">看 seata-server 部署脚本、示例工程（seata-samples）和源码实现。</span></li>
+      <li>📖 <a href="https://www.seata.io/zh-cn/blog/" target="_blank">Seata 官方博客</a> — <span class="desc">模式选型、踩坑案例与版本演进的实践文章合集。</span></li>
+      <li>📖 <a href="https://microservices.io/patterns/data/saga.html" target="_blank">Microservices Pattern: Saga</a> — <span class="desc">Chris Richardson 对协调式/编排式 Saga 的经典讲解，理解长事务补偿的必读文章。</span></li>
+      <li>📖 <a href="https://rocketmq.apache.org/zh/docs/" target="_blank">Apache RocketMQ 官方文档</a> — <span class="desc">学习事务消息（半消息机制）托管最终一致性的实现方式。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能不看资料画出 Seata 中 TC/TM/RM 的交互时序，并解释 AT 模式一阶段、二阶段各做了什么吗？</li>
+      <li>面对"下单扣库存扣余额"，我能说出至少三种实现方案并给出选型理由吗？</li>
+      <li>我的最终一致性方案里，幂等、补偿、对账三个兜底分别落在哪个环节？</li>
+      <li>我能在 30 分钟内独立跑通一个 Seata 回滚示例或本地消息表示例吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m1-5.html">← 上一节：链路追踪与分布式日志</a>
+    <a href="s4-m2-2.html">下一节：消息队列（RabbitMQ / Kafka） →</a>
+  </div>
+
+</div>
+</body>
+</html>

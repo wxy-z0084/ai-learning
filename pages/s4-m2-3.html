@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分布式缓存与 Redis 集群 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块二 · 分布式方案 / <strong>分布式缓存与 Redis 集群</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>分布式缓存与 Redis 集群</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块二 · 分布式方案</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够设计缓存读写策略（Cache Aside / Read Through），并给出缓存与数据库的<strong>一致性方案</strong>及其适用边界。</li>
+      <li>能够诊断并给出<strong>缓存穿透、击穿、雪崩</strong>三类问题的具体对策代码。</li>
+      <li>能够部署一套 Redis 主从 + 哨兵或 Cluster 集群，解释分片、复制、故障转移的工作原理。</li>
+      <li>能够用 Redis 实现分布式锁（SET NX EX + Lua 释放），并说明它为什么需要额外的看门狗续期。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：缓存读写策略与一致性</h3>
+    <p>缓存的价值是把<strong>热点只读数据</strong>从数据库移到内存，单实例 Redis 可支撑 10 万级 QPS，而 MySQL 单表通常几千 QPS 就到瓶颈。最常用的 <strong>Cache Aside 策略</strong>：读时先查缓存，未命中则回源数据库并回填；写时<strong>先更新数据库，再删除缓存</strong>（而不是更新缓存）——删除比更新更安全，因为并发写时更新缓存会产生旧值覆盖新值的"脏写"。</p>
+    <p>缓存与数据库无法做到真正强一致，工程上只能压缩不一致窗口：进阶手段是<strong>延迟双删</strong>（更新库后删一次缓存，sleep 数百毫秒再删一次，覆盖读请求回填的旧值），更彻底的是订阅数据库 binlog（如用 Canal 或 Debezium）异步失效缓存，业务代码完全解耦。常见坑：缓存回填必须设 <strong>TTL</strong>，否则脏数据永不过期；大 Key 删除要有节奏（UNLINK 替代 DEL），避免阻塞。</p>
+
+    <h3>知识点 2：穿透、击穿、雪崩</h3>
+    <p>三个名字相近但成因完全不同的问题，面试与线上排障必考。<strong>缓存穿透</strong>：查询一个缓存和数据库都不存在的数据（如恶意刷不存在的商品 ID），请求永远打到数据库。对策：缓存空值（短 TTL，如 60 秒）+ 参数合法性校验 + 布隆过滤器（Bloom Filter，用极小内存挡住绝大多数不存在的 key，误判率可调）。</p>
+    <p><strong>缓存击穿</strong>：某个热点 key 突然过期，瞬间大量并发请求同时回源。对策：<strong>互斥锁重建</strong>（只允许一个线程回源并回填，其他线程等待后重查缓存）或逻辑过期（不设 TTL，值里带过期时间，过期后异步重建、先返回旧值）。</p>
+    <p><strong>缓存雪崩</strong>：大批 key 在同一时刻过期或缓存服务整体宕机，流量直打数据库。对策：TTL 加随机抖动（如基础 30 分钟 ± 5 分钟）、集群化部署 + 哨兵自动切换、多级缓存（本地 Caffeine 顶第一波）、以及入口限流。任何缓存方案都要预演"Redis 整体不可用"时系统的表现，必要时用开关直接降级为读库。</p>
+
+    <h3>知识点 3：主从、哨兵与 Cluster</h3>
+    <p><strong>主从复制</strong>解决读扩展与数据备份：从节点异步复制主节点的 RDB/AOF 变更流，读流量用客户端分摊或读写分离代理；但异步复制意味着主宕机时可能丢掉最后几秒写入。<strong>Sentinel（哨兵）</strong>在主节点故障时自动选举新主并通知客户端切换，实现高可用（HA），适合"一主多从、数据量可控"的场景。</p>
+    <p><strong>Redis Cluster</strong> 解决容量与写扩展：数据按 <strong>16384 个哈希槽</strong>分片，每个槽分配给一组主从；客户端发命令时若 key 不在当前节点，收到 MOVED 重定向后直连正确节点（智能客户端会缓存槽路由）。注意跨槽操作受限：多 key 事务、Lua 脚本要求 <strong>同一个 slot</strong>（可用 <code>{hash_tag}</code> 强制同槽）。运维要点：给每个主节点配从节点、节点间用 gossip 通信、客户端必须支持 Cluster 协议（如 redis-py 的 RedisCluster、Lettuce/Jedis 的 cluster 模式）。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：Python + redis-py 实现缓存读取、空值缓存、互斥锁重建击穿防护与分布式锁释放（可直接运行，pip install redis）：</p>
+<pre><code>import json, random, time, uuid, redis
+
+r = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
+
+def query_db(pid):                       # 替换为你的数据库查询；不存在时返回 None
+    return {"id": pid, "name": "示例商品", "price": 99}
+
+def get_product(pid):
+    key = f"product:{pid}"
+    val = r.get(key)
+    if val is None:
+        # 击穿防护：只允许一个请求回源
+        if r.set(f"lock:{pid}", "1", nx=True, ex=10):
+            try:
+                data = query_db(pid)            # 你的数据库查询
+                r.set(key, json.dumps(data) if data else '{"null":true}', ex=1800 + random.randint(-300, 300)  # TTL 抖动防雪崩)
+            finally:
+                release_lock(f"lock:{pid}")
+        else:
+            time.sleep(0.2)                     # 等待回填后重查
+            return get_product(pid)
+    else:
+        data = None if val == '{"null":true}' else json.loads(val)  # 穿透防护：命中空值缓存
+    return data
+
+def release_lock(key):
+    # Lua 保证"判断值相同再删除"原子执行，避免误删他人持有的锁
+    r.eval("""
+      if redis.call('get', KEYS[1]) == ARGV[1] then
+        return redis.call('del', KEYS[1])
+      else
+        return 0
+      end""", 1, key, r.get(key))
+
+# 分布式锁：唯一 token 用于安全释放；生产环境配合看门狗续期
+token = str(uuid.uuid4())
+if r.set("order:create:1001", token, nx=True, ex=30):
+    try:
+        create_order()
+    finally:
+        if r.get("order:create:1001") == token:
+            r.delete("order:create:1001")</code></pre>
+    <div class="tip">💡 分布式锁只解决"互斥"，不解决"主从切换丢锁"（主宕机、锁信息未同步到从机）。金融级场景用 Redisson（Java）的看门狗 + 红锁讨论，或直接降到 ZooKeeper/etcd 的强一致锁；多数业务场景一把带 TTL 的 SETNX + Lua 释放已足够，别过度设计。</div>
+    <p>示例二：用 docker 启动一套三主三从 Cluster（生产可用的最小形态），并在客户端验证分片：</p>
+<pre><code># 1. 启动 6 个节点（每节点一个端口，生产应分机器）
+for p in 7001 7002 7003 7004 7005 7006; do
+  docker run -d --name redis-$p -p $p:6379 redis:7-alpine \
+    redis-server --port 6379 --cluster-enabled yes \
+      --cluster-config-file nodes.conf --cluster-node-timeout 5000 \
+      --appendonly yes --requirepass YourPass --masterauth YourPass
+done
+
+# 2. 一次性创建集群（--cluster-replicas 1 表示每主 1 从）
+docker exec -it redis-7001 redis-cli -a YourPass --cluster create \
+  172.17.0.2:6379 172.17.0.3:6379 172.17.0.4:6379 \
+  172.17.0.5:6379 172.17.0.6:6379 172.17.0.7:6379 \
+  --cluster-replicas 1 --cluster-yes
+
+# 3. 验证：查看槽分配；{user} 是 hash_tag，保证同事务 key 落同一槽
+docker exec -it redis-7001 redis-cli -a YourPass -c cluster slots
+docker exec -it redis-7001 redis-cli -a YourPass -c set "{user}1001:profile" '{"name":"li"}'</code></pre>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：找一个你项目中的高频查询接口，接入 Redis 缓存（含空值缓存与 TTL 抖动），对比接入前后接口 P99 延迟。</li>
+      <li><strong>任务 2</strong>：模拟缓存击穿：写脚本并发 200 个请求查询同一个恰好过期的 key，分别在无锁、有互斥锁两种实现下统计数据库查询次数，验证互斥锁把回源次数压到 1。</li>
+      <li><strong>任务 3</strong>：按示例二部署 6 节点 Cluster，用 <code>redis-cli --cluster check</code> 验证拓扑；kill 掉一个主节点，观察自动选举与客户端重定向是否正常。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：用 redis-cli 的 MONITOR 或 <code>--bigkeys</code> 扫描自己业务的 key，找出超过 10KB 的大 Key 并改造成分片结构（Hash 拆字段）。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://redis.io/docs/latest/" target="_blank">Redis 官方文档</a> — <span class="desc">数据类型、命令、持久化与复制的第一手资料，建议收藏 Command Reference。</span></li>
+      <li>📖 <a href="https://redis.io/docs/latest/operate/oss_and_stack/management/scaling/" target="_blank">Redis Cluster 官方教程</a> — <span class="desc">槽分配、MOVED 重定向、扩缩容与故障转移的官方说明。</span></li>
+      <li>📖 <a href="https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/" target="_blank">Redis Sentinel 官方文档</a> — <span class="desc">哨兵选举与客户端切换协议，理解高可用切换流程。</span></li>
+      <li>📖 <a href="https://github.com/redis/redis-py" target="_blank">redis-py GitHub 仓库</a> — <span class="desc">本节示例所用客户端的文档与 cluster 支持说明。</span></li>
+      <li>📖 <a href="https://university.redis.io/" target="_blank">Redis University 免费课程</a> — <span class="desc">RU101/Redis Enterprise 体系化课程，含实验环境，适合系统入门。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能不看资料说出穿透、击穿、雪崩的区别、成因和各自至少两种对策吗？</li>
+      <li>我的分布式锁代码是否用 Lua 释放？并发下会不会误删别人的锁？</li>
+      <li>我能解释 Cluster 下为什么跨 slot 不能跑 Lua，并给出 {hash_tag} 的解决办法吗？</li>
+      <li>如果 Redis 整体宕机 1 分钟，我的系统会发生什么？限流/降级开关在哪里？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m2-2.html">← 上一节：消息队列（RabbitMQ / Kafka）</a>
+    <a href="s4-m2-4.html">下一节：分库分表（ShardingSphere） →</a>
+  </div>
+
+</div>
+</body>
+</html>

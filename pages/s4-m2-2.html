@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>消息队列（RabbitMQ / Kafka）· AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块二 · 分布式方案 / <strong>消息队列（RabbitMQ / Kafka）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>消息队列（RabbitMQ / Kafka）</h1>
+    <div class="meta"><span class="time-chip">预计 1 天</span>模块二 · 分布式方案</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说清消息队列解决的三类问题（异步、解耦、削峰），并判断一个业务点该不该上 MQ。</li>
+      <li>能够用 RabbitMQ 实现<strong>可靠投递</strong>：生产端 confirm、队列与消息持久化、消费端手动 ACK 与重回队列策略。</li>
+      <li>能够解释 Kafka 的 topic / partition / offset / consumer group 概念，说明分区数与消费并行度、顺序性的关系。</li>
+      <li>能够在 RabbitMQ 与 Kafka 之间做选型，并设计防重复消费（幂等）与积压告警的基本方案。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：MQ 的三个经典用途与代价</h3>
+    <p><strong>异步</strong>：下单后发短信、记流水这类非主链路操作移出主流程，接口响应时间从串行 300ms 降到 50ms。<strong>解耦</strong>：订单创建后需要通知库存、积分、物流三个系统，用一条消息广播，后续新增订阅方无需改订单服务代码。<strong>削峰</strong>：秒杀请求先入队，下游按自身处理能力慢慢消费，保护数据库不被瞬时洪峰打挂。</p>
+    <p>代价同样要认清：引入 MQ 后链路变长，排查问题要看两套日志（所以才需要上一节的分布式追踪）；消息可能丢失、重复、乱序，必须分别设计对策；集群本身要运维（磁盘、监控、多副本）。判断标准很简单——若一个操作<strong>必须同步返回明确结果</strong>（如支付扣款），不要丢给 MQ；若允许"先受理、后处理"，才适合异步化。</p>
+
+    <h3>知识点 2：RabbitMQ 与可靠性投递</h3>
+    <p><strong>RabbitMQ</strong> 是传统消息代理（Broker）模型：消息经交换机（Exchange，类型有 direct / topic / fanout / headers）路由到队列（Queue），再投递给消费者。它的优势是<strong>路由灵活、确认机制精细</strong>，天然支持工作队列、发布订阅、RPC 等多种模式，单条消息可被多个队列独立消费。</p>
+    <p>可靠性要三段保障：生产端开启 <strong>publisher confirm</strong>，确认消息已落 Broker；队列与消息设置<strong>持久化</strong>（durable 队列 + deliveryMode=2），否则 Broker 重启消息即丢；消费端用<strong>手动 ACK</strong>，业务处理成功后再确认，处理失败则 nack + requeue 或进死信队列（DLX）人工处理。注意：手动 ACK 若忘记确认，消息会一直重投造成重复消费——消费逻辑必须按消息唯一 ID 幂等。老版本的镜像队列正被 <strong>Quorum Queue</strong>（基于 Raft）取代，新项目直接用后者。</p>
+
+    <h3>知识点 3：Kafka 的日志模型与消费语义</h3>
+    <p><strong>Kafka</strong> 把每个分区（Partition）实现为一个只追加的提交日志（commit log），消息按写入顺序分配递增的 <strong>offset</strong>，消费者自己记录读到哪个 offset。这种设计带来三个关键特性：超高吞吐（顺序写磁盘 + 零拷贝）、<strong>多消费者组互不影响</strong>（每个组独立读全量）、以及天然的<strong>回溯消费能力</strong>（可把 offset 调到任意位置重放，常用于数据订正和新系统上线回灌历史数据）。</p>
+    <p>必须吃透的三条规则：<strong>顺序性只在分区内保证</strong>——同一业务单号要发到同一分区（自定义分区器或用业务键做 key），并保证该分区内同单号消息由同一个消费者实例处理；<strong>消费并行度 = 分区数</strong>，消费者组内实例超过分区数会有实例空闲；<strong>重复消费无法根除</strong>（至少一次语义：offset 提交与业务处理不是原子的），下游必须按 key 幂等。rebalance（消费者组重平衡）瞬间可能造成重复或停顿，大流量场景可开启静态成员资格（static membership）缓解。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：RabbitMQ 可靠投递的 Python 生产者（pika，生产确认模式）与消费者（手动 ACK）：</p>
+<pre><code># producer.py —— pip install pika
+import pika, json
+
+creds = pika.PlainCredentials("guest", "guest")
+params = pika.ConnectionParameters("localhost", 5672, "/", creds)
+conn = pika.BlockingConnection(params)
+ch = conn.channel()
+ch.confirm_delivery()                       # 开启生产确认
+ch.queue_declare(queue="order.created", durable=True)  # 持久化队列
+
+ch.basic_publish(
+    exchange="", routing_key="order.created",
+    body=json.dumps({"orderId": "A1001", "amount": 99.0}),
+    properties=pika.BasicProperties(delivery_mode=2),  # 持久化消息
+    mandatory=True)
+conn.close()</code></pre>
+<pre><code># consumer.py —— 手动 ACK，处理失败重回队列
+import pika, json, time
+
+def on_message(ch, method, properties, body):
+    msg = json.loads(body)
+    try:
+        handle_order(msg)          # 幂等：按 orderId 去重
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+    except Exception:
+        # 不 requeue 可配合死信队列转人工，避免毒消息无限循环
+        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+
+conn = pika.BlockingConnection(
+    pika.ConnectionParameters("localhost", 5672, "/", pika.PlainCredentials("guest", "guest")))
+ch = conn.channel()
+ch.queue_declare(queue="order.created", durable=True)
+ch.basic_qos(prefetch_count=10)    # 一次拉取 10 条，防止被单条慢消息卡住
+ch.basic_consume(queue="order.created", on_message_callback=on_message)
+ch.start_consuming()</code></pre>
+    <div class="tip">💡 本地实验推荐用 docker 快速拉起两个 Broker：<code>docker run -d --name rabbitmq -p 5672:5672 -p 15672:25672 rabbitmq:3-management</code>（管理界面 http://localhost:15672），以及 <code>docker run -d --name kafka apache/kafka:3.7.0</code>。看懂管理界面里的 unacked、ready、messages 学习曲线最陡也最有用的三个指标。</div>
+    <p>示例二：Kafka 生产者与消费者组（confluent-kafka 库），演示按业务键分区与 offset 提交：</p>
+<pre><code># pip install confluent-kafka
+from confluent_kafka import Consumer, Producer, KafkaError
+
+# 生产端：key 相同则进入同一分区，保证单订单有序
+p = Producer({"bootstrap.servers": "localhost:9092"})
+p.produce("order.created", key=b"A1001",
+          value=b'{"orderId":"A1001","amount":99.0}')
+p.flush(10)
+
+# 消费端：手动提交 offset，业务先幂等再提交
+c = Consumer({"bootstrap.servers": "localhost:9092",
+              "group.id": "order-group-1",   # 同组分摊分区，异组各自全量
+              "enable.auto.commit": False})
+c.subscribe(["order.created"])
+while True:
+    msg = c.poll(1.0)
+    if msg is None or msg.error():
+        if msg and msg.error().code() == KafkaError._PARTITION_EOF:
+            continue
+        continue
+    process(msg.key().decode(), msg.value().decode())  # 内部按 key 幂等
+    c.commit(message=msg)                               # 业务成功后再提交 offset</code></pre>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：用 docker 启动 RabbitMQ，跑通上面生产者/消费者示例；在消费者里故意抛异常 3 次，观察 requeue 与消息重复投递现象，验证幂等逻辑有效。</li>
+      <li><strong>任务 2</strong>：启动单节点 Kafka，创建 6 分区的 order.created 主题，起 2 个消费者组各 3 个消费者，用 <code>kafka-consumer-groups.sh --describe</code> 观察分区分配；再把消费者缩到 2 个，观察 rebalance。</li>
+      <li><strong>任务 3</strong>：压测你的 RabbitMQ 链路（可用 perf 工具或自己写循环发 10 万条），记录开启/关闭 confirm 与持久化时的吞吐差异，把结论写成一段选型说明。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：给 order.created 配置死信队列：让消费者 nack(requeue=False) 后消息进入 DLQ，写一个小脚本从 DLQ 捞消息回放。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://kafka.apache.org/documentation" target="_blank">Apache Kafka 官方文档</a> — <span class="desc">设计与配置手册，重点读 introduction、configuration、consumer 三章。</span></li>
+      <li>📖 <a href="https://rabbitmq.com/docs" target="_blank">RabbitMQ 官方文档</a> — <span class="desc">首页即文档中心，先看 "Get Started" 跑通教程，再读 Reliable Message Producing 一文。</span></li>
+      <li>📖 <a href="https://www.rabbitmq.com/getstarted.html" target="_blank">RabbitMQ Tutorials</a> — <span class="desc">官方六个入门教程（工作队列、发布订阅、路由、RPC），配代码可直接跑。</span></li>
+      <li>📖 <a href="https://developer.confluent.io/courses/apache-kafka/" target="_blank">Confluent Kafka 免费课程</a> — <span class="desc">系统讲解分区、ISR、消费者组与容灾，Kafka 进阶的高质量材料。</span></li>
+      <li>📖 <a href="https://kafka.apache.org/intro" target="_blank">Kafka Introduction</a> — <span class="desc">官方对日志模型、offset、消费者组的一页式精讲，先读这篇再啃文档。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能画出一条消息从生产者到消费者经过的全部组件，并标出每一步可能丢消息的位置吗？</li>
+      <li>我能解释"Kafka 同一分区内有序、不同分区间无序"，并说明业务上如何利用这一点吗？</li>
+      <li>我的消费逻辑有幂等保护吗？重复消息、乱序消息进来会发生什么？</li>
+      <li>当监控告警显示消息积压 100 万条时，我知道先查什么（消费者存活？消费耗时？分区不均？）吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m2-1.html">← 上一节：分布式事务（Seata、最终一致性）</a>
+    <a href="s4-m2-3.html">下一节：分布式缓存与 Redis 集群 →</a>
+  </div>
+
+</div>
+</body>
+</html>

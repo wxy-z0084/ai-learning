@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 结对编程工具使用（Cursor、Copilot 等） · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块四 · Vibe Coding / <strong>AI 结对编程工具使用（Cursor、Copilot 等）</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>AI 结对编程工具使用（Cursor、Copilot 等）</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块四 · Vibe Coding</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够区分<strong>行内补全、聊天问答、Agent 模式</strong>三种 AI 编程交互方式的适用场景。</li>
+      <li>能够完成 Cursor 或 GitHub Copilot 的安装与基本配置，并跑通一次完整的<strong>生成—修改—运行</strong>循环。</li>
+      <li>能够使用 <code>.cursorrules</code> / 项目规则、<code>@文件引用</code> 等机制给 AI 提供正确的<strong>项目上下文</strong>。</li>
+      <li>能够建立"AI 写、我审、我跑、我改"的<strong>协作节奏</strong>，而不是盲目接受生成结果。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：三种交互模式与各自分工</h3>
+    <p><strong>行内补全</strong>（Cursor 的 Tab、Copilot 的 ghost text）擅长接续你正在写的代码：补全函数体、补全测试用例、按上一行的模式批量改写。它不理解宏大需求，但响应零延迟，适合机械性代码。<strong>聊天问答</strong>（Ctrl/Cmd+K、Chat 面板）适合解释代码、生成片段、答疑，你可以用 <code>@文件名</code> 把相关文件拉进上下文。<strong>Agent 模式</strong>（Cursor 的 Agent / Copilot Workspace）能自主规划步骤、读写多个文件、执行命令，适合"实现一个小功能""修复这个报错"这类目标明确的任务。</p>
+    <p>选错模式是最常见的浪费：用行内补全去做整个功能，或用 Agent 去改一个变量名，都会事倍功半。经验法则：<strong>改 1-3 行用补全，问思路用聊天，跨文件任务用 Agent</strong>。</p>
+
+    <h3>知识点 2：配置项目规则与上下文</h3>
+    <p>AI 的输出质量首先取决于它"看到"什么。三件事值得在项目里固化：一是在项目根目录写<strong>规则文件</strong>（Cursor 为 <code>.cursorrules</code> 或 Settings → Rules for AI），声明技术栈、代码风格、禁止事项，例如"使用 FastAPI + SQLAlchemy 2.0 异步写法，禁止 print 调试，统一用 logging"；二是让工具<strong>索引代码库</strong>，索引完成后聊天里才能用 <code>@codebase</code> 提问"登录逻辑在哪个文件"；三是用 <code>@文件</code>、<code>@ Git</code> 精确圈定本次任务的范围，避免模型靠猜。</p>
+    <p>常见坑：把密钥提交进仓库被索引；规则文件写得空泛（"写出高质量代码"等于没写）——规则要写成<strong>可执行的约束</strong>，如"所有 API 错误统一返回 {code, message}"。</p>
+
+    <h3>知识点 3：人机协作的节奏</h3>
+    <p>结对编程的核心不是"让 AI 写"，而是你始终握方向盘：先自己想清楚接口与数据结构，再让 AI 填充实现；每次生成后<strong>先读代码</strong>再接受，重点看边界条件、异常处理与注入风险；每次改动后<strong>立即运行测试</strong>，让报错信息成为下一轮对话的输入。把"生成 → 阅读 → 运行 → 反馈"循环控制在几分钟内，比一次生成五百行更可靠。</p>
+    <div class="tip">💡 把编译器/测试看作你的第一读者：先让代码能跑，再让 AI 润色命名与注释。顺序反了会陷入"解释为什么没跑起来"的泥潭。</div>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一是一份可直接放进项目根目录的 <strong>Cursor 规则文件</strong>（<code>.cursorrules</code>）：</p>
+<pre><code>你是一名资深 Python 工程师，为本项目生成代码时遵守以下规则：
+1. 技术栈：Python 3.11 + FastAPI + SQLAlchemy 2.0（异步）+ Pydantic v2；
+2. 所有路由函数必须有类型注解与 docstring，返回统一响应模型 APIResponse；
+3. 异常统一在 middleware 中处理，禁止在业务代码里裸 print；
+4. 数据库访问一律通过 repository 层，业务层不直接 import engine；
+5. 生成代码时若缺少必要依赖信息，先向我提问，不要臆造字段名。
+</code></pre>
+    <p>示例二是发起 Agent 任务时的<strong>高质量指令</strong>，可以直接改写后使用：</p>
+<pre><code>任务：为 user 模块新增"手机号登录"接口。
+
+背景：
+- 参见 @api/user.py 现有的邮箱登录实现，保持同样的分层与响应结构；
+- 用户表已有 phone 字段（见 @models/user.py）。
+
+要求：
+1. 新增 POST /api/v1/auth/phone-login，接收 phone + sms_code；
+2. 复用 services/auth.py 中的 token 签发逻辑；
+3. 补充 services 层单元测试（pytest），至少覆盖成功与验证码错误两种情况；
+4. 不要改动现有接口，完成后运行 pytest 并把结果贴给我。
+</code></pre>
+    <div class="tip">💡 提示：指令里写清"参照哪个文件、保持什么风格、完成标准是什么、要不要跑测试"，Agent 的一次通过率会明显提升。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：安装 Cursor（或在 VS Code 中启用 Copilot），在一个现有项目中完成登录，用 <code>@codebase</code> 提问定位一个业务函数。</li>
+      <li><strong>任务 2</strong>：为你的项目写一份 10 行以上的规则文件，生成一个新接口，对比加规则前后的输出差异。</li>
+      <li><strong>任务 3</strong>：用 Agent 模式完成一次"新增接口 + 单元测试"的小任务，全程遵守"生成必读、改完必跑"的流程。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：统计一周内你使用补全/聊天/Agent 的次数与采纳率，总结哪类任务交给哪种模式最划算。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://docs.cursor.com" target="_blank">Cursor 官方文档</a> — <span class="desc">Agent、@引用、规则配置的完整手册，工具使用的首选资料。</span></li>
+      <li>📖 <a href="https://docs.github.com/en/copilot" target="_blank">GitHub Copilot 官方文档</a> — <span class="desc">Copilot 在 IDE 与 GitHub 上的全部能力与最佳实践。</span></li>
+      <li>📖 <a href="https://docs.github.com/en/copilot/responsible-ai/copilot-code-referencing" target="_blank">Copilot 代码引用说明</a> — <span class="desc">了解生成代码的来源与许可注意事项，规避合规风险。</span></li>
+      <li>📖 <a href="https://docs.anthropic.com/en/docs/claude-code/overview" target="_blank">Claude Code 文档</a> — <span class="desc">终端里的 AI 编程助手，可与 IDE 工具互补使用。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能根据任务复杂度选择补全/聊天/Agent 中最合适的模式吗？</li>
+      <li>我的项目里是否已有一份具体、可执行的 AI 规则文件？</li>
+      <li>我是否养成了"每次生成先读代码、改完立即跑测试"的习惯？</li>
+      <li>我能说出把密钥、大文件排除在 AI 索引之外的具体做法吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m3-4.html">← 上一节：多模态插件组合搭建场景应用</a>
+    <a href="s1-m4-2.html">下一节：上下文与需求描述技巧 →</a>
+  </div>
+
+</div>
+</body>
+</html>

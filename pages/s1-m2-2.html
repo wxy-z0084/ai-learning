@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Few-shot 示例提示 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段一 · 指挥AI写软件 / 模块二 · 提示词工程 / <strong>Few-shot 示例提示</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段一 · 指挥AI写软件</div>
+    <h1>Few-shot 示例提示</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块二 · 提示词工程</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够解释 Zero-shot、One-shot、Few-shot 的区别及各自适用场景。</li>
+      <li>能够为一个分类或改写任务挑选并组织 3~5 个高质量示例。</li>
+      <li>能够识别「示例污染」问题：示例顺序、比例、格式不一致导致的输出偏差。</li>
+      <li>能够用「示例 + 规则」组合的方式解决纯规则搞不定的模糊任务。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+    <h3>知识点 1：从 Zero-shot 到 Few-shot——示例是一种「隐性规则」</h3>
+    <p><strong>Zero-shot</strong> 不给示例，只靠指令；<strong>One-shot</strong> 给一个示例；<strong>Few-shot</strong> 通常给 2~8 个「输入 → 输出」配对。示例的本质是：<strong>当你无法用语言把规则描述清楚时，用实例把规则「演示」给模型</strong>。有些任务的规范极难言说——「什么算标题党」「什么算委婉的拒绝」「这条文本该归到哪个内部标签」——写成规则要几十条还漏边角，而给 5 个例子，模型立刻「心领神会」。Few-shot 同时还能锁定输出格式：示例用什么结构，模型就沿用什么结构，比抽象地写「请输出 JSON」有效得多。</p>
+    <p>选型经验：任务规则清晰、格式简单 → Zero-shot 足够，省 token；规则清晰但格式复杂 → 加 1 个示例锚定格式（One-shot）；规则模糊、类别边界靠感觉 → Few-shot，且每个可能的类别都要有示例覆盖。</p>
+
+    <h3>知识点 2：示例的四个质量标准</h3>
+    <p><strong>①代表性</strong>：示例要覆盖任务的真实分布，包括<strong>边界与困难样本</strong>。只放简单正例，模型遇到绕弯的说法就会翻车。比如做「情感分类」，除了明显好评差评，一定要放一条阴阳怪气的（「真是太'棒'了，等了两个小时」）。<strong>②一致性</strong>：所有示例必须使用<strong>完全相同的格式、口吻与标注体系</strong>，包括标点和换行；不一致的示例会互相打架，模型随机学一个。<strong>③独立性</strong>：示例之间不能有信息泄漏（如示例 A 的答案里出现了示例 B 的内容），否则模型会「抄近路」。<strong>④顺序策略</strong>：示例顺序会影响权重，常见做法是把<strong>最典型、最完整的示例放在最后</strong>（离真实输入最近，影响力最大）；分类任务还要<strong>平衡各类别出现次数</strong>，别让某一类占了 4/5，模型会倾向多判那一类。</p>
+    <p>示例数量的边际效应：1→3 个提升明显，3→5 个继续提升，8 个以上收益趋缓而 token 成本线性上涨。生产环境建议从 3 个起步，用真实 bad case 驱动增补。</p>
+
+    <h3>知识点 3：与规则混用及常见坑</h3>
+    <p>Few-shot 不是万能药，最稳的组合是<strong>「规则定边界 + 示例定风格」</strong>：用上一节的四段式把硬规则写死（禁止编造、输出字段），再用示例演示边界情况的处理方式。例如工单分类：规则写清「标签清单与优先级定义」，示例演示「同时涉及退款和投诉时归到哪类」。常见坑有三个：<strong>示例里含有敏感或个人信息</strong>（示例会被拼进提示词，等于每次调用都外发一遍，务必脱敏）；<strong>示例与实时输入格式不匹配</strong>（示例输入是纯文本，真实输入带表格，模型会困惑）；<strong>示例过时</strong>（业务规则改了，示例还在按旧规则标注，输出新旧混杂——示例和规则要一起纳入版本管理，下节展开）。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：一个「客服工单意图分类 + 优先级判定」的 Few-shot 提示词，规则与示例配合使用，可直接粘贴使用：</p>
+<pre><code># 角色与任务
+你是电商客服系统的工单分诊员。读取用户工单文本，输出意图标签与优先级。
+
+# 标签清单（规则）
+意图 ∈ {退款申请, 物流投诉, 商品咨询, 技术故障, 其他}
+优先级规则：涉及资金 > 涉及无法使用 > 一般咨询；同一工单取最高级。
+
+# 示例
+【输入】我昨天付的钱怎么还没到账？申请退款三天了
+【输出】{"intent": "退款申请", "priority": "P1", "reason": "涉及资金且已超时"}
+
+【输入】快递显示签收但我没收到，联系快递员也不回
+【输出】{"intent": "物流投诉", "priority": "P2", "reason": "物品疑似丢失，非资金问题"}
+
+【输入】你们 App 一打开就闪退，手机是 iPhone 15
+【输出】{"intent": "技术故障", "priority": "P2", "reason": "用户完全无法使用产品"}
+
+【输入】请问这个杯子可以进洗碗机吗
+【输出】{"intent": "商品咨询", "priority": "P3", "reason": "一般性咨询，无紧急性"}
+
+【输入】我要投诉你们客服，顺便问下怎么开发票
+【输出】{"intent": "其他", "priority": "P2", "reason": "投诉情绪需安抚，同时含次要咨询，取较高级"}
+
+# 输出要求
+只输出一行 JSON，字段为 intent、priority、reason，reason 不超过 20 字。
+</code></pre>
+    <p>注意第 5 个示例的作用：它演示了「一单多意图时如何取舍」——这种规则写三句话都说不清，一个示例就说明白了。这正是 Few-shot 的价值所在。</p>
+    <p>示例二：用 Python 组织示例列表，方便程序化维护与消融实验（去掉某个示例看准确率变化）：</p>
+<pre><code>EXAMPLES = [
+    ("我昨天付的钱怎么还没到账？申请退款三天了",
+     '{"intent": "退款申请", "priority": "P1"}'),
+    ("快递显示签收但我没收到，联系快递员也不回",
+     '{"intent": "物流投诉", "priority": "P2"}'),
+    ("你们 App 一打开就闪退，手机是 iPhone 15",
+     '{"intent": "技术故障", "priority": "P2"}'),
+]
+
+def build_prompt(ticket: str, examples=EXAMPLES) -> str:
+    shots = "\n\n".join(
+        f"【输入】{x}\n【输出】{y}" for x, y in examples
+    )
+    return f"# 分诊规则\n意图∈{{退款申请,物流投诉,技术故障,其他}}\n\n# 示例\n{shots}\n\n# 待处理\n【输入】{ticket}\n【输出】"
+
+# 消融实验：逐个去掉示例，比较分类准确率，找出冗余示例
+for i in range(len(EXAMPLES)):
+    subset = EXAMPLES[:i] + EXAMPLES[i + 1:]
+    print(f"去掉第 {i + 1} 个示例后评估……")
+</code></pre>
+    <div class="tip">💡 提示：示例之间的分隔符要显式且统一（如「【输入】/【输出】」标签或三引号块），否则真实输入可能与示例边界混淆，模型会把你的新输入当成示例的一部分。最后一行永远留给真实输入。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：挑一个分类任务（如垃圾邮件识别、评论打标），先用 Zero-shot 测 10 条样本记录准确率，再加 3 个示例重测，对比提升幅度。</li>
+      <li><strong>任务 2</strong>：在任务 1 的示例集中加入 1 条「边界困难样本」，验证模型对该类样本的判断是否改善，并把这条示例保留进正式版本。</li>
+      <li><strong>任务 3</strong>：故意把示例的输出格式改乱（两个示例用 JSON、一个用纯文本），观察输出稳定性变化，体会一致性的重要性。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：用上面的消融实验代码思想，做 3 个示例的两两组合测试，找出「性价比最高」的最小示例集。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://platform.openai.com/docs/guides/prompt-engineering" target="_blank">OpenAI 提示词工程指南 · Provide examples</a> — <span class="desc">官方对 few-shot 用法与示例选择的建议。</span></li>
+      <li>📖 <a href="https://www.promptingguide.ai/zh" target="_blank">promptingguide.ai 中文版</a> — <span class="desc">Few-shot prompting 章节，配大量可复现的例子。</span></li>
+      <li>📖 <a href="https://www.coze.cn/docs" target="_blank">扣子官方文档</a> — <span class="desc">在扣子人设与工作流大模型节点中落地 few-shot 的位置说明。</span></li>
+      <li>📖 <a href="https://www.coze.cn/store" target="_blank">扣子商店</a> — <span class="desc">观察优秀 Bot 的示例化表达（固定话术与回答模板），反推其示例设计。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能说出三种任务类型分别该用 Zero-shot 还是 Few-shot 吗？</li>
+      <li>我能按「代表性、一致性、独立性、顺序」四标准审查一个示例集吗？</li>
+      <li>我给示例做过脱敏处理、避免把真实数据拼进提示词吗？</li>
+      <li>我能用「规则定边界 + 示例定风格」的思路改造一条旧提示词吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s1-m2-1.html">← 上一节：提示词结构设计（角色、任务、约束、格式）</a>
+    <a href="s1-m2-3.html">下一节：思维链（CoT）与逐步推理 →</a>
+  </div>
+
+</div>
+</body>
+</html>

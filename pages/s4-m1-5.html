@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>链路追踪与分布式日志 · AI 学习计划</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <div class="nav">
+    <a class="back-link" href="../ai-learning-plan.html">← 返回学习计划</a>
+    <div class="breadcrumb">阶段四 · 业务解决方案 / 模块一 · 微服务架构 / <strong>链路追踪与分布式日志</strong></div>
+  </div>
+
+  <div class="page-header">
+    <div class="stage-tag">阶段四 · 业务解决方案</div>
+    <h1>链路追踪与分布式日志</h1>
+    <div class="meta"><span class="time-chip">预计 0.5 天</span>模块一 · 微服务架构</div>
+  </div>
+
+  <!-- 一、学习目标 -->
+  <div class="section">
+    <h2>一、学习目标</h2>
+    <ul>
+      <li>能够说清<strong>Trace / Span / TraceId</strong> 三个概念，画出一次请求跨服务的调用链形态。</li>
+      <li>能够为 Spring Boot 服务接入 Micrometer Tracing（Brave/OTel），把 <strong>traceId 注入日志</strong>并保证异步、MQ 场景不丢。</li>
+      <li>能够搭建"集中式日志 + 链路追踪"的排查工作流：用一个 traceId 串起网关与全部下游日志。</li>
+      <li>能够权衡<strong>采样率、存储成本与敏感信息</strong>，给出适合团队规模的落地方案。</li>
+    </ul>
+  </div>
+
+  <!-- 二、核心知识点 -->
+  <div class="section">
+    <h2>二、核心知识点</h2>
+
+    <h3>知识点 1：为什么"对时间戳"排障行不通了</h3>
+    <p>单体时代一条异常栈就够定位问题；微服务下一次下单要穿过网关、订单、支付、库存 4 个服务，日志散落在十几台机器的文件里，靠人肉对时间戳既慢又容易错。<strong>链路追踪</strong>的思路是：请求进入系统时生成一个全局唯一的 <strong>TraceId</strong>，贯穿整条调用链；每一跳产生一个 <strong>Span</strong>（记录服务名、方法、开始/结束时间、状态），Span 之间以父子关系连接成树。任何一处报错，都能用这个 TraceId 把全链路日志、各段耗时、异常点一次性拉出来。行业事实标准是 <strong>OpenTelemetry</strong>（Tracing + Metrics + Logging 的统一规范），Spring Boot 3 起通过 <strong>Micrometer Tracing</strong> 提供门面，底层可选 Brave（兼容 Zipkin 协议）或 OTel 实现——<strong>写代码只依赖 Micrometer Tracing 的 API</strong>，将来换后端不用改业务代码。</p>
+
+    <h3>知识点 2：日志必须带上 traceId，且不能在异步处断链</h3>
+    <p>光有追踪数据还不够，日志与链路要<strong>用同一个 traceId 打通</strong>：把 traceId 放进日志框架的 MDC，在 pattern 中输出 <code>%X{traceId}</code>，于是每行日志天然可检索。最常踩的坑是<strong>链路在异步处断裂</strong>：进入 <code>@Async</code>、线程池、定时任务、MQ 消费者时，MDC（ThreadLocal）不会自动传递，traceId 变成空。解决办法是用 Spring 提供的 <code>TaskDecorator</code> / 装饰线程池把 MDC 快照带过去，MQ 则在消息头里显式携带 traceId 并在消费端恢复。第二个坑是<strong>上下游头不透传</strong>——网关、Feign、RestTemplate 都要加过滤器传递 trace 相关 Header（上一节网关里透传的 X-Trace-Id 就是为此），否则链路只有一段。第三是<strong>日志规范</strong>：统一 JSON 结构（时间、级别、服务、traceId、方法、耗时、异常栈），错误日志必须含上下文参数（订单号、用户 ID）而不是只打一句"操作失败"。</p>
+
+    <h3>知识点 3：集中式日志与采样、成本权衡</h3>
+    <p>本地文件 + <code>grep</code> 只适合单机排障，团队协作需要<strong>集中式日志</strong>：各服务把结构化日志推到采集器（Filebeat / Fluent Bit / Logstash），落入 Elasticsearch 或 Loki，提供按 traceId、服务名、级别、时间范围的检索与告警。链路数据同理上报到 SkyWalking / Zipkin / Tempo 做可视化（拓扑图、慢接口 TopN、错误率）。三个必须提前想清楚的取舍：<strong>① 采样率</strong>——全采样在高 QPS 下存储与网络开销巨大，开发环境 100%、生产先 1%–10%，但<strong>错误链路建议强制保留</strong>（按状态码/异常采样）；<strong>② 敏感信息</strong>——日志与 Span 属性里禁止出现手机号、身份证、完整 Token、请求体密码字段，必须脱敏；<strong>③ 告警落地</strong>——采集而不看等于白花钱，至少给"错误率突增 + P99 超阈值 + 服务不可用"三类告警配值班通道。</p>
+  </div>
+
+  <!-- 三、示例 / 实操演示 -->
+  <div class="section">
+    <h2>三、示例演示</h2>
+    <p>示例一：接入 Micrometer Tracing 并把 traceId 打进日志（依赖 + 配置 + logback pattern）。只需三步，重启后每行日志都会带 32 位 traceId：</p>
+<pre><code># pom.xml 关键依赖（Brave 实现，兼容 Zipkin 协议；也可换成 micrometer-tracing-otel）
+#   org.springframework.boot:spring-boot-starter-actuator
+#   io.micrometer:micrometer-tracing-bridge-brave
+#   io.zipkin.reporter2:zipkin-reporter-brave
+
+# application.yml
+management:
+  tracing:
+    sampling:
+      probability: 1.0          # 本地 1.0；生产建议 0.05～0.1 + 错误全采
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans   # 上报地址（不接可先注释）
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"</code></pre>
+    <p>示例二：异步场景的 traceId 透传——线程池装饰器 + HTTP 客户端出站过滤器（Java，缺这两段链路必然断）：</p>
+<pre><code>// ① 线程池包装：把父线程的 MDC 快照带进异步任务，任务结束再清理
+public class MdcTaskDecorator implements TaskDecorator {
+    @Override
+    public Runnable decorate(Runnable runnable) {
+        Map&lt;String, String&gt; snapshot = MDC.getCopyOfContextMap();   // 捕获 traceId
+        return () -&gt; {
+            if (snapshot != null) MDC.setContextMap(snapshot);
+            try { runnable.run(); }
+            finally { MDC.clear(); }                                // 防止线程复用串号
+        };
+    }
+}
+// 注册：@Bean("appExecutor") ThreadPoolTaskExecutor ex -> ex.setTaskDecorator(new MdcTaskDecorator());
+
+// ② 出站调用（RestTemplate/Feign）自动带上 trace 头，供下游恢复同一条链路
+@Component
+public class TraceHeaderInterceptor implements ClientHttpRequestInterceptor {
+    @Override
+    public ClientHttpResponse intercept(HttpRequest req, byte[] body,
+            ClientHttpRequestExecution exec) throws IOException {
+        String traceId = MDC.get("traceId");
+        if (traceId != null) {
+            req.getHeaders().add("X-Trace-Id", traceId);   // 与网关、日志字段保持一致
+        }
+        return exec.execute(req, body);
+    }
+}
+// 消费 MQ 消息时：String traceId = message.getHeader("X-Trace-Id"); MDC.put("traceId", traceId);</code></pre>
+    <div class="tip">💡 排障的标准动作：用户报障 → 要到手机号后四位或时间点 → 在日志平台按 traceId/时间过滤 → 打开该 trace 的调用树找红色 Span → 点进慢的那段看对应服务日志。把这一步写进值班手册，平均恢复时间（MTTR）会显著下降。</div>
+  </div>
+
+  <!-- 四、实践任务 -->
+  <div class="section">
+    <h2>四、实践任务</h2>
+    <ol>
+      <li><strong>任务 1</strong>：给网关与两个下游服务接入 Micrometer Tracing，调用一次跨服务接口，验证三方日志里 <code>%X{traceId}</code> 是同一个值。</li>
+      <li><strong>任务 2</strong>：在其中一条链路上插入 <code>@Async</code> 方法与一个线程池任务，复现 traceId 丢失，再用 TaskDecorator 修复并验证恢复。</li>
+      <li><strong>任务 3</strong>：搭建集中式日志（Elasticsearch + Kibana，或 Loki + Grafana 二选一），用结构化 JSON 输出，按服务名、级别、traceId 完成一次检索并截图存档。</li>
+      <li><strong>任务 4（进阶，可选）</strong>：接入 SkyWalking 看调用拓扑与慢接口 TopN；把采样率调到 10% 并配置"错误链路全采"，估算日志与追踪的每日存储量。</li>
+    </ol>
+  </div>
+
+  <!-- 五、推荐资源 -->
+  <div class="section">
+    <h2>五、推荐资源</h2>
+    <ul class="resources">
+      <li>📖 <a href="https://micrometer.io/docs/tracing" target="_blank">Micrometer Tracing 文档</a> — <span class="desc">Spring Boot 3 链路追踪的官方门面，依赖、配置项与 MDC 注入约定以它为准。</span></li>
+      <li>📖 <a href="https://opentelemetry.io/docs/" target="_blank">OpenTelemetry 官方文档</a> — <span class="desc">Trace/Span 规范与各语言 SDK 的标准出处，理解采样、上下文传播的必读资料。</span></li>
+      <li>📖 <a href="https://skywalking.apache.org/" target="_blank">Apache SkyWalking</a> — <span class="desc">可观测性平台：拓扑图、链路查询、告警，适合快速搭起可视化环境。</span></li>
+      <li>📖 <a href="https://www.elastic.co/elasticsearch" target="_blank">Elasticsearch</a> — <span class="desc">集中式日志的存储与检索核心，配合 Kibana 做按 traceId 的日志排查。</span></li>
+    </ul>
+  </div>
+
+  <!-- 六、自检清单 -->
+  <div class="section">
+    <h2>六、自检清单</h2>
+    <ul class="checklist">
+      <li>我能用 Trace/Span/TraceId 解释一次请求跨服务时追踪数据是如何串联的吗？</li>
+      <li>我的日志里有 traceId 吗？异步线程、MQ 消费这两处会不会断链？</li>
+      <li>我能在 5 分钟内用 traceId 从日志平台定位到报错服务的具体堆栈吗？</li>
+      <li>我的采样率、敏感信息脱敏、告警规则三项都已明确并写进方案了吗？</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="s4-m1-4.html">← 上一节：服务调用（OpenFeign）与熔断降级（Sentinel）</a>
+    <a href="s4-m2-1.html">下一节：分布式事务（Seata、最终一致性） →</a>
+  </div>
+
+</div>
+</body>
+</html>
