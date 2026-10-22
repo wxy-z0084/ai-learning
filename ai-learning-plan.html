@@ -1,644 +1,101 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI 能力成长学习计划（细分版）</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
-    background: linear-gradient(135deg, #eef6ff 0%, #f7fbff 50%, #eef7ff 100%);
-    color: #2c3e50;
-    padding: 40px 20px;
-    line-height: 1.7;
-  }
-  header {
-    text-align: center;
-    margin-bottom: 40px;
-  }
-  header h1 {
-    font-size: 32px;
-    color: #1565c0;
-    margin-bottom: 10px;
-  }
-  header p {
-    color: #607d8b;
-    font-size: 15px;
-  }
-  .timeline {
-    max-width: 1100px;
-    margin: 0 auto;
-    position: relative;
-  }
-  .timeline::before {
-    content: "";
-    position: absolute;
-    left: 28px;
-    top: 0;
-    bottom: 0;
-    width: 4px;
-    background: linear-gradient(#2196f3, #0d47a1);
-    border-radius: 2px;
-  }
-  .stage {
-    position: relative;
-    margin-bottom: 32px;
-    padding-left: 72px;
-  }
-  .stage-number {
-    position: absolute;
-    left: 0;
-    top: 6px;
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
-    background: #fff;
-    border: 4px solid #2196f3;
-    color: #1565c0;
-    font-size: 22px;
-    font-weight: bold;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 4px 10px rgba(33,150,243,.25);
-    z-index: 1;
-  }
-  .card {
-    background: #fff;
-    border-radius: 14px;
-    padding: 24px 28px;
-    box-shadow: 0 6px 18px rgba(21,101,192,.10);
-    border-top: 5px solid #2196f3;
-    transition: transform .2s, box-shadow .2s;
-  }
-  .card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 12px 24px rgba(21,101,192,.18);
-  }
-  .card h2 {
-    font-size: 20px;
-    color: #1565c0;
-    background: #e3f2fd;
-    display: inline-block;
-    padding: 6px 18px;
-    border-radius: 8px;
-    margin-bottom: 16px;
-  }
-  .profile {
-    background: #f5faff;
-    border-left: 4px solid #2196f3;
-    padding: 14px 18px;
-    border-radius: 0 8px 8px 0;
-    margin-bottom: 18px;
-  }
-  .profile .label {
-    color: #1e88e5;
-    font-weight: bold;
-    font-size: 15px;
-    margin-bottom: 6px;
-  }
-  .profile p { font-size: 15px; color: #37474f; }
-  .breakdown-title {
-    font-size: 15px;
-    font-weight: bold;
-    color: #1565c0;
-    margin-bottom: 12px;
-  }
-  .modules {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: 14px;
-  }
-  .module {
-    background: #fafcff;
-    border: 1px solid #e3f2fd;
-    border-radius: 10px;
-    padding: 14px 16px;
-  }
-  .module h3 {
-    font-size: 15px;
-    color: #1565c0;
-    margin-bottom: 8px;
-    padding-bottom: 6px;
-    border-bottom: 1px dashed #bbdefb;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-  }
-  .module h3 .total {
-    font-size: 12px;
-    font-weight: normal;
-    color: #fff;
-    background: #42a5f5;
-    padding: 1px 10px;
-    border-radius: 10px;
-    white-space: nowrap;
-  }
-  .module ul {
-    list-style: none;
-  }
-  .module li {
-    font-size: 14px;
-    color: #455a64;
-    padding-left: 22px;
-    position: relative;
-    margin-bottom: 4px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-  }
-  .module li::before {
-    content: "✓";
-    position: absolute;
-    left: 0;
-    color: #43a047;
-    font-weight: bold;
-  }
-  .module li .txt { flex: 1; }
-  .module li .txt a {
-    color: inherit;
-    text-decoration: none;
-    border-bottom: 1px dashed #90caf9;
-    transition: all .15s;
-  }
-  .module li .txt a:hover {
-    color: #1565c0;
-    border-bottom-color: #1565c0;
-  }
-  .module li .txt a::after {
-    content: " ↗";
-    font-size: 11px;
-    color: #90caf9;
-  }
-  .module li .time {
-    flex-shrink: 0;
-    font-size: 12px;
-    color: #1e88e5;
-    background: #e3f2fd;
-    padding: 1px 8px;
-    border-radius: 10px;
-    white-space: nowrap;
-  }
-  .duration {
-    display: inline-block;
-    margin-top: 16px;
-    font-size: 13px;
-    color: #fff;
-    background: #90caf9;
-    padding: 3px 12px;
-    border-radius: 12px;
-  }
-  .guide {
-    max-width: 1100px;
-    margin: 0 auto 32px;
-    background: #fff;
-    border-radius: 14px;
-    padding: 26px 30px;
-    box-shadow: 0 6px 18px rgba(21,101,192,.10);
-    border-top: 5px solid #fb8c00;
-  }
-  .guide h2 {
-    font-size: 20px;
-    color: #ef6c00;
-    background: #fff3e0;
-    display: inline-block;
-    padding: 6px 18px;
-    border-radius: 8px;
-    margin-bottom: 16px;
-  }
-  .guide .steps {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 14px;
-    margin-bottom: 16px;
-  }
-  .guide .step {
-    background: #fffaf3;
-    border: 1px solid #ffe0b2;
-    border-radius: 10px;
-    padding: 14px 16px;
-  }
-  .guide .step .num {
-    display: inline-block;
-    width: 26px; height: 26px;
-    border-radius: 50%;
-    background: #fb8c00;
-    color: #fff;
-    text-align: center;
-    line-height: 26px;
-    font-weight: bold;
-    margin-right: 8px;
-  }
-  .guide .step h3 { font-size: 15px; color: #ef6c00; display: inline; }
-  .guide .step p { font-size: 14px; color: #455a64; margin-top: 8px; }
-  .guide .note {
-    background: #e8f5e9;
-    border-left: 4px solid #43a047;
-    padding: 12px 16px;
-    border-radius: 0 8px 8px 0;
-    font-size: 14px;
-    color: #2e7d32;
-  }
-  .guide .note b { color: #1b5e20; }
-  .milestone {
-    margin-top: 18px;
-    background: #f3e5f5;
-    border-left: 4px solid #8e24aa;
-    padding: 14px 18px;
-    border-radius: 0 8px 8px 0;
-  }
-  .milestone .label {
-    color: #6a1b9a;
-    font-weight: bold;
-    font-size: 15px;
+@@ -257,6 +257,44 @@
     margin-bottom: 6px;
   }
   .milestone p { font-size: 14px; color: #4a148c; }
+  .status-btn {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: #78909c;
+    background: #f1f5f8;
+    border: 1px solid #dfe7ec;
+    padding: 1px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+  }
+  .status-btn.st-learning { color: #e65100; background: #fff3e0; border-color: #ffe0b2; }
+  .status-btn.st-done { color: #2e7d32; background: #e8f5e9; border-color: #c8e6c9; }
+  .status-menu {
+    position: fixed;
+    z-index: 99;
+    background: #fff;
+    border: 1px solid #dfe7ec;
+    border-radius: 10px;
+    box-shadow: 0 8px 20px rgba(21,101,192,.18);
+    padding: 6px;
+    display: none;
+    min-width: 96px;
+  }
+  .status-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font-size: 13px;
+    padding: 6px 12px;
+    border: 0;
+    background: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #455a64;
+  }
+  .status-menu button:hover { background: #e3f2fd; color: #1565c0; }
   footer {
     max-width: 1100px;
     margin: 30px auto 0;
-    text-align: center;
-    color: #90a4ae;
-    font-size: 13px;
-  }
-  @media (max-width: 640px) {
-    .timeline::before { left: 18px; }
-    .stage { padding-left: 52px; }
-    .stage-number { width: 40px; height: 40px; font-size: 16px; border-width: 3px; }
-    header h1 { font-size: 24px; }
-    .guide { padding: 18px 20px; }
-  }
-</style>
-</head>
-<body>
-
-<header>
-  <h1>AI 能力成长学习计划（细分版）</h1>
-  <p>五大阶段能力画像 · 学习内容细分及预估时长 · 点击任意学习内容即可进入对应学习页面</p>
-</header>
-
-<div class="guide">
-  <h2>📌 学习用法说明（务必先看）</h2>
-  <div class="steps">
-    <div class="step">
-      <span class="num">1</span><h3>二八法则</h3>
-      <p>每个知识点：读本页(10min) → 读推荐<b>官方文档</b>核心(30min) → <b>动手跑通示例(1h+)</b> → 写一条笔记。动手应占 60% 以上时间，只"看目录"等于没学。</p>
-    </div>
-    <div class="step">
-      <span class="num">2</span><h3>设里程碑</h3>
-      <p>别逐个刷 113 个知识点。每个阶段结束做一个小项目（见各阶段"🎯 里程碑项目"），把零散知识串成能拿得出手的作品。</p>
-    </div>
-    <div class="step">
-      <span class="num">3</span><h3>找反馈</h3>
-      <p>把代码/笔记发到 GitHub、加入 AI 学习社群，让他人帮你发现盲区——这是静态计划替代不了的"纠偏回路"。</p>
-    </div>
-  </div>
-  <div class="note">
-    <b>⚠ 数学原理是盲区：</b>本计划偏工程应用层，未含线性代数、概率、微积分与 Transformer 内部机制。学到阶段五容易"知其然不知其所以然"。建议并行补充：吴恩达《Machine Learning》基础课、李宏毅《机器学习》、<b>《动手学深度学习》（D2L）第 1–5 章</b>。
-  </div>
-</div>
-
-<div class="timeline">
-
-  <!-- 阶段一 -->
-  <div class="stage">
-    <div class="stage-number">一</div>
-    <div class="card">
-      <h2>指挥AI写软件</h2>
-      <div class="profile">
-        <div class="label">能力画像</div>
-        <p>掌握 Coze 平台使用、提示词工程与多模态应用搭建以及 Vibe Coding 的能力，具备 AI 智能体快速开发能力。</p>
-      </div>
-      <div class="breakdown-title">学习内容细分：</div>
-      <div class="modules">
-        <div class="module">
-          <h3>1. Coze 平台使用 <span class="total">约 3 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s1-m1-1.html">账号注册与工作区管理</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m1-2.html">Bot 创建与人设配置</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m1-3.html">插件调用与工作流编排</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m1-4.html">知识库（文档/表格）配置</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m1-5.html">变量、记忆与数据库功能</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m1-6.html">发布到 Web / 微信 / 飞书等渠道</a></span><span class="time">0.5 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>2. 提示词工程 <span class="total">约 3 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s1-m2-1.html">提示词结构设计（角色、任务、约束、格式）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m2-2.html">Few-shot 示例提示</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m2-3.html">思维链（CoT）与逐步推理</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m2-4.html">提示词模板化与版本管理</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m2-5.html">提示词评估与迭代优化</a></span><span class="time">0.5 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>3. 多模态应用搭建 <span class="total">约 2 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s1-m3-1.html">文本 + 图像输入输出处理</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m3-2.html">语音识别与合成应用</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m3-3.html">多模态大模型（图文理解）调用</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m3-4.html">多模态插件组合搭建场景应用</a></span><span class="time">0.5 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>4. Vibe Coding <span class="total">约 2 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s1-m4-1.html">AI 结对编程工具使用（Cursor、Copilot 等）</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m4-2.html">上下文与需求描述技巧</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m4-3.html">AI 生成代码的审查与调整</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m4-4.html">自然语言驱动的快速迭代开发</a></span><span class="time">0.5 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>5. AI 智能体快速开发 <span class="total">约 2.5 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s1-m5-1.html">零代码/低代码智能体搭建流程</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m5-2.html">智能体场景选题与需求拆解</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m5-3.html">实战：客服、写作、办公助手等应用</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s1-m5-4.html">智能体发布与效果验证</a></span><span class="time">0.5 天</span></li>
-          </ul>
-        </div>
-      </div>
-      <span class="duration">建议周期：第 1 - 2 周</span>
-      <div class="milestone">
-        <div class="label">🎯 里程碑项目：做一个能用的 Coze 客服 / 写作助手</div>
-        <p>在 Coze 搭一个带知识库、能调插件、会记住对话上下文的 Bot，发布到网页或飞书；用阶段二学到的提示词技巧把回答质量调到位，对外可用即过关。</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- 阶段二 -->
-  <div class="stage">
-    <div class="stage-number">二</div>
-    <div class="card">
-      <h2>智能体开发</h2>
-      <div class="profile">
-        <div class="label">能力画像</div>
-        <p>掌握 Python 全栈、FastAPI、RAG 与 LangChain，具备企业级 AI 智能体开发与部署能力。</p>
-      </div>
-      <div class="breakdown-title">学习内容细分：</div>
-      <div class="modules">
-        <div class="module">
-          <h3>1. Python 全栈 <span class="total">约 4 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s2-m1-1.html">Python 语法进阶与常用标准库</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m1-2.html">异步编程（asyncio）与并发处理</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m1-3.html">包管理与工程化项目结构</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m1-4.html">前端基础（HTML/CSS/JS、Streamlit）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m1-5.html">数据库操作（SQL / ORM）</a></span><span class="time">0.5 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>2. FastAPI <span class="total">约 4 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s2-m2-1.html">路由、请求与响应模型（Pydantic）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m2-2.html">依赖注入与中间件</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m2-3.html">接口鉴权（JWT / OAuth2）</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m2-4.html">流式响应（SSE / WebSocket）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m2-5.html">接口测试（Swagger）与部署（Uvicorn/Docker）</a></span><span class="time">1 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>3. RAG（检索增强生成） <span class="total">约 4.5 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s2-m3-1.html">文档加载与切分策略</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m3-2.html">Embedding 向量化原理</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m3-3.html">向量数据库使用（Milvus / Chroma / FAISS）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m3-4.html">检索策略（混合检索、重排序）</a></span><span class="time">1.5 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m3-5.html">RAG 效果评估与优化</a></span><span class="time">0.5 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>4. LangChain <span class="total">约 5 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s2-m4-1.html">核心组件：Model / Prompt / Chain</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m4-2.html">Agent 与 Tool（工具调用）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m4-3.html">对话记忆（Memory）管理</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m4-4.html">LCEL 声明式链路编排</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m4-5.html">LangGraph 多步智能体工作流</a></span><span class="time">1.5 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>5. 企业级开发与部署 <span class="total">约 4 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s2-m5-1.html">智能体工程化目录与配置管理</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m5-2.html">日志、监控与异常处理</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m5-3.html">Docker 容器化与发布流程</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m5-4.html">API 限流、成本控制与安全</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s2-m5-5.html">实战：企业知识库问答智能体</a></span><span class="time">1.5 天</span></li>
-          </ul>
-        </div>
-      </div>
-      <span class="duration">建议周期：第 3 - 6 周</span>
-      <div class="milestone">
-        <div class="label">🎯 里程碑项目：企业知识库问答智能体（带 RAG + 流式界面）</div>
-        <p>用 Python + FastAPI + LangChain + Milvus/Chroma 搭一个能上传文档、向量检索、流式回答并显示引用来源的知识库问答系统，Docker 部署可访问。</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- 阶段三 -->
-  <div class="stage">
-    <div class="stage-number">三</div>
-    <div class="card">
-      <h2>软件工程化</h2>
-      <div class="profile">
-        <div class="label">能力画像</div>
-        <p>掌握 Java/SpringBoot 与企业级单体项目开发，具备业务系统 AI 集成与低代码开发能力。</p>
-      </div>
-      <div class="breakdown-title">学习内容细分：</div>
-      <div class="modules">
-        <div class="module">
-          <h3>1. Java / SpringBoot <span class="total">约 5 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s3-m1-1.html">Java 语法进阶与集合、多线程</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m1-2.html">Spring IoC 与 AOP 原理</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m1-3.html">SpringMVC 与 RESTful 开发</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m1-4.html">MyBatis / JPA 数据访问</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m1-5.html">SpringBoot 自动配置与 Starter</a></span><span class="time">1 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>2. 企业级单体项目开发 <span class="total">约 5 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s3-m2-1.html">分层架构设计（Controller-Service-DAO）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m2-2.html">统一响应、异常处理与参数校验</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m2-3.html">权限认证（Spring Security / Sa-Token）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m2-4.html">缓存（Redis）、任务调度（Quartz）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m2-5.html">单元测试与接口文档（Knife4j）</a></span><span class="time">1 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>3. 业务系统 AI 集成 <span class="total">约 5 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s3-m3-1.html">调用大模型 API（OpenAI / 国产大模型）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m3-2.html">流式输出与对话管理</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m3-3.html">Function Calling 工具调用集成</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m3-4.html">业务数据注入提示词（提示词模板管理）</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m3-5.html">AI 能力封装为业务模块（审核、摘要、生成）</a></span><span class="time">1.5 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>4. 低代码开发 <span class="total">约 3 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s3-m4-1.html">低代码平台核心概念与选型</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m4-2.html">表单、流程、页面可视化配置</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m4-3.html">低代码与自定义代码扩展结合</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s3-m4-4.html">低代码应用与 AI 能力集成</a></span><span class="time">0.5 天</span></li>
-          </ul>
-        </div>
-      </div>
-      <span class="duration">建议周期：第 7 - 10 周</span>
-      <div class="milestone">
-        <div class="label">🎯 里程碑项目：给一个单体业务系统接入 AI 能力</div>
-        <p>用 Java/SpringBoot 写一个带登录鉴权、Redis 缓存的博客/工单系统，并把"AI 摘要、AI 审核、AI 生成"封装成业务模块，低代码平台也复刻一遍核心表单流程。</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- 阶段四 -->
-  <div class="stage">
-    <div class="stage-number">四</div>
-    <div class="card">
-      <h2>业务解决方案</h2>
-      <div class="profile">
-        <div class="label">能力画像</div>
-        <p>掌握微服务架构、分布式方案、多智能体开发，具备企业级项目智能化升级与高并发系统落地能力。</p>
-      </div>
-      <div class="breakdown-title">学习内容细分：</div>
-      <div class="modules">
-        <div class="module">
-          <h3>1. 微服务架构 <span class="total">约 4.5 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s4-m1-1.html">服务拆分原则与设计</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m1-2.html">注册中心与配置中心（Nacos）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m1-3.html">API 网关（Gateway）与负载均衡</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m1-4.html">服务调用（OpenFeign）与熔断降级（Sentinel）</a></span><span class="time">1.5 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m1-5.html">链路追踪与分布式日志</a></span><span class="time">0.5 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>2. 分布式方案 <span class="total">约 4.5 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s4-m2-1.html">分布式事务（Seata、最终一致性）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m2-2.html">消息队列（RabbitMQ / Kafka）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m2-3.html">分布式缓存与 Redis 集群</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m2-4.html">分库分表（ShardingSphere）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m2-5.html">高可用与容灾设计</a></span><span class="time">0.5 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>3. 多智能体开发 <span class="total">约 4 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s4-m3-1.html">多智能体角色分工与任务规划</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m3-2.html">智能体间通信与协作机制</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m3-3.html">编排框架（LangGraph / CrewAI / AutoGen）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m3-4.html">共享记忆与状态管理</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m3-5.html">多智能体冲突处理与结果汇总</a></span><span class="time">1 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>4. 企业级项目智能化升级 <span class="total">约 3 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s4-m4-1.html">存量系统 AI 升级需求分析与评估</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m4-2.html">AI 能力嵌入现有业务流程的方案设计</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m4-3.html">新旧系统数据与接口打通</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m4-4.html">灰度发布与回滚机制</a></span><span class="time">0.5 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>5. 高并发系统落地 <span class="total">约 4 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s4-m5-1.html">性能压测（JMeter）与瓶颈定位</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m5-2.html">JVM 调优与 SQL 优化</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m5-3.html">限流、熔断与降级策略</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m5-4.html">容量规划与弹性伸缩</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s4-m5-5.html">实战：高并发业务系统 AI 智能化升级</a></span><span class="time">1 天</span></li>
-          </ul>
-        </div>
-      </div>
-      <span class="duration">建议周期：第 11 - 14 周</span>
-      <div class="milestone">
-        <div class="label">🎯 里程碑项目：高并发 + 多智能体协作的智能化升级实战</div>
-        <p>把阶段三的单体系统拆成微服务，接 Nacos/Gateway/Sentinel，用多智能体（LangGraph/CrewAI）做任务编排，再压测 + JVM/SQL 调优，给出灰度升级方案。</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- 阶段五 -->
-  <div class="stage">
-    <div class="stage-number">五</div>
-    <div class="card">
-      <h2>传统项目智能化升级</h2>
-      <div class="profile">
-        <div class="label">能力画像</div>
-        <p>具备项目集成 AI 能力实现智能化升级，掌握 LoRA 微调、模型评估与部署，具备大模型优化与生产级上线的全流程能力。</p>
-      </div>
-      <div class="breakdown-title">学习内容细分：</div>
-      <div class="modules">
-        <div class="module">
-          <h3>1. 项目集成 AI 能力 <span class="total">约 2.5 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s5-m1-1.html">传统项目 AI 升级可行性评估</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m1-2.html">智能化升级方案设计（提示词 / RAG / 微调选型）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m1-3.html">AI 接口与业务数据打通</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m1-4.html">升级效果验证与业务价值评估</a></span><span class="time">0.5 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>2. LoRA 微调 <span class="total">约 5 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s5-m2-1.html">微调场景判断（何时微调 vs RAG）</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m2-2.html">训练数据收集、清洗与格式构造</a></span><span class="time">1.5 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m2-3.html">LoRA / QLoRA 原理与参数配置</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m2-4.html">训练框架使用（LLaMA-Factory 等）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m2-5.html">微调效果验证与迭代</a></span><span class="time">1 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>3. 模型评估与部署 <span class="total">约 4 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s5-m3-1.html">评估指标（准确率、鲁棒性、业务指标）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m3-2.html">自动化评估集与评测流程</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m3-3.html">推理服务搭建（vLLM / Ollama）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m3-4.html">模型版本管理与灰度切换</a></span><span class="time">1 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>4. 大模型优化 <span class="total">约 3.5 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s5-m4-1.html">模型量化（GPTQ / AWQ）</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m4-2.html">剪枝与蒸馏基础</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m4-3.html">推理加速与显存优化</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m4-4.html">提示缓存与调用成本优化</a></span><span class="time">1 天</span></li>
-          </ul>
-        </div>
-        <div class="module">
-          <h3>5. 生产级上线全流程 <span class="total">约 4 天</span></h3>
-          <ul>
-            <li><span class="txt"><a href="pages/s5-m5-1.html">CI/CD 与自动化发布</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m5-2.html">线上监控告警与效果回归</a></span><span class="time">1 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m5-3.html">A/B 测试与迭代闭环</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m5-4.html">安全合规（内容安全、数据隐私）</a></span><span class="time">0.5 天</span></li>
-            <li><span class="txt"><a href="pages/s5-m5-5.html">实战：传统项目大模型智能化升级上线</a></span><span class="time">1 天</span></li>
-          </ul>
-        </div>
-      </div>
-      <span class="duration">建议周期：第 15 - 18 周</span>
-      <div class="milestone">
-        <div class="label">🎯 里程碑项目：传统项目大模型智能化升级上线（全流程）</div>
-        <p>选一个真实/模拟旧系统，完成可行性评估 → RAG 或 LoRA 微调选型 → 用 LLaMA-Factory 微调并量化部署（vLLM/Ollama）→ 接入 CI/CD、监控告警、A/B 测试，最终上线。</p>
-      </div>
-    </div>
-  </div>
-
-</div>
-
+@@ -640,5 +678,63 @@
 <footer>学习计划（细分版）· 基于五大阶段能力画像逐层拆解 · 点击学习内容进入学习页面 · 时长为预估值，可按实际基础调整</footer>
-
+<div class="status-menu" id="statusMenu">
+  <button data-st="">未学习</button>
+  <button data-st="learning">学习中</button>
+  <button data-st="done">已学习</button>
+</div>
+<script>
+(function () {
+  var KEY = 'learning-progress';
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { saved = {}; }
+  var menu = document.getElementById('statusMenu');
+  var activeBtn = null;
+  document.querySelectorAll('.module li').forEach(function (li) {
+    var a = li.querySelector('.txt a');
+    if (!a) return;
+    var name = a.getAttribute('href');            // 页面文件名作为唯一标识
+    var btn = document.createElement('button');
+    btn.className = 'status-btn';
+    btn.type = 'button';
+    apply(btn, saved[name] || '');
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var r = btn.getBoundingClientRect();
+      menu.style.left = Math.min(r.left, window.innerWidth - 110) + 'px';
+      menu.style.top = (r.bottom + 4) + 'px';
+      menu.style.display = 'block';
+      activeBtn = btn;
+      activeBtn.name = name;
+    });
+    li.appendChild(btn);
+  });
+  function apply(btn, st) {
+    btn.classList.remove('st-learning', 'st-done');
+    if (st === 'learning') { btn.classList.add('st-learning'); btn.textContent = '学习中'; }
+    else if (st === 'done') { btn.classList.add('st-done'); btn.textContent = '已学习'; }
+    else btn.textContent = '未学习';
+  }
+  menu.querySelectorAll('button').forEach(function (mb) {
+    mb.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (!activeBtn) return;
+      var st = mb.getAttribute('data-st');
+      apply(activeBtn, st);
+      if (st) saved[activeBtn.name] = st; else delete saved[activeBtn.name];
+      try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (err) {}
+      menu.style.display = 'none';
+    });
+  });
+  document.addEventListener('click', function () { menu.style.display = 'none'; });
+  window.addEventListener('scroll', function () { menu.style.display = 'none'; });
+})();
+</script>
 </body>
 </html>
