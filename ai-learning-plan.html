@@ -678,6 +678,7 @@
 </div>
 
 <footer>学习计划（细分版）· 基于五大阶段能力画像逐层拆解 · 点击学习内容进入学习页面 · 时长为预估值，可按实际基础调整</footer>
+<div id="syncInfo" style="text-align:center;color:#90a4ae;font-size:12px;margin-top:6px"></div>
 
 <div class="status-menu" id="statusMenu">
   <button data-st="">未学习</button>
@@ -742,7 +743,7 @@
   // 拉取云端共享进度（所有人读写仓库里的同一个 progress.json）
   function loadCloud() {
     if (CFG.owner.indexOf('你的') === 0 || CFG.token.indexOf('请填入') !== -1) return; // 未配置则只用本地记忆
-    fetch(API + '?ref=' + CFG.branch, { headers: GH })
+    fetch(API + '?ref=' + CFG.branch + '&t=' + Date.now(), { headers: GH, cache: 'no-store' })  // 加时间戳绕开 HTTP 缓存
       .then(function (r) {
         if (r.status === 404) return null;                    // 首次还没有进度文件
         if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -755,11 +756,13 @@
         }
         cloudReady = true;
         saveLocal(); refreshAll();
+        var el = document.getElementById('syncInfo');
+        if (el) el.textContent = '共享进度 · 上次同步 ' + new Date().toLocaleTimeString();
       })
       .catch(function (e) { console.warn('云端加载失败，使用本地记录：', e); });
   }
 
-  // 把最新进度写回云端；冲突时自动重取合并重试一次
+  // 把最新进度写回云端；冲突时先拉云端合并再存，避免覆盖别人的更新
   function pushCloud() {
     if (!cloudReady || saving) { pending = true; return; }
     saving = true;
@@ -767,7 +770,7 @@
     if (cloudSha) body.sha = cloudSha;
     fetch(API, { method: 'PUT', headers: Object.assign({ 'Content-Type': 'application/json' }, GH), body: JSON.stringify(body) })
       .then(function (r) {
-        if (r.status === 409) { cloudSha = null; return loadCloud(); }
+        if (r.status === 409) { return mergeAndRetry(); }    // 别人也刚写入：拉最新云端合并后再存
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
       })
@@ -776,8 +779,27 @@
       .then(function () { saving = false; if (pending) { pending = false; pushCloud(); } });
   }
 
+  // 409 冲突处理：拉取云端最新数据，与本地的“未同步改动”合并后重存
+  function mergeAndRetry() {
+    fetch(API + '?ref=' + CFG.branch + '&t=' + Date.now(), { headers: GH, cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        cloudSha = j.sha;
+        var remote = {};
+        try { remote = JSON.parse(b64dec(j.content)) || {}; } catch (e) {}
+        // 合并：云端已有的项保留，本地新改动覆盖对应项
+        Object.keys(saved).forEach(function (k) { remote[k] = saved[k]; });
+        saved = remote;
+        return fetch(API, { method: 'PUT', headers: Object.assign({ 'Content-Type': 'application/json' }, GH), body: JSON.stringify({ message: 'merge progress', content: b64enc(JSON.stringify(saved)), sha: cloudSha, branch: CFG.branch }) });
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.content) cloudSha = j.content.sha; })
+      .catch(function (e) { console.warn('冲突合并失败：', e); });
+  }
+
   loadCloud();
-  setInterval(loadCloud, 30000);   // 每 30 秒同步一次，访客之间无需刷新也能看到彼此的更新
+  setInterval(loadCloud, 30000);   // 每 30 秒同步一次
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) loadCloud(); });  // 切回页面立即同步（解决手机后台节流）
 
   menu.querySelectorAll('button').forEach(function (mb) {
     mb.addEventListener('click', function (e) {
