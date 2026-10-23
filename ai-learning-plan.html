@@ -701,6 +701,7 @@
   var cloudSha = null, cloudReady = false, saving = false, pending = false;
 
   var saved = {};
+  var dirty = {};   // 本地已点、尚未写上云端确认的改动（防轮询冲掉）
   try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { saved = {}; }
   var menu = document.getElementById('statusMenu');
   var activeBtn = null;
@@ -752,14 +753,25 @@
       .then(function (j) {
         if (j) {
           cloudSha = j.sha;
-          try { var d = JSON.parse(b64dec(j.content)); if (d && Object.keys(d).length) saved = d; } catch (e) {}
+          try {
+            var d = JSON.parse(b64dec(j.content));
+            if (d && Object.keys(d).length) {
+              // 云端数据打底，本地未确认的改动优先（防竞态冲掉刚点的状态）
+              Object.keys(dirty).forEach(function (k) { d[k] = dirty[k]; });
+              saved = d;
+            }
+          } catch (e) {}
         }
         cloudReady = true;
         saveLocal(); refreshAll();
         var el = document.getElementById('syncInfo');
-        if (el) el.textContent = '共享进度 · 上次同步 ' + new Date().toLocaleTimeString();
+        if (el) { el.textContent = '共享进度 · 上次同步 ' + new Date().toLocaleTimeString(); el.style.color = '#90a4ae'; }
       })
-      .catch(function (e) { console.warn('云端加载失败，使用本地记录：', e); });
+      .catch(function (e) {
+        console.warn('云端加载失败，使用本地记录：', e);
+        var el = document.getElementById('syncInfo');
+        if (el) { el.textContent = '⚠ 同步失败（网络连不上 GitHub），显示的是本机记录'; el.style.color = '#c62828'; }
+      });
   }
 
   // 把最新进度写回云端；冲突时先拉云端合并再存，避免覆盖别人的更新
@@ -774,8 +786,21 @@
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
       })
-      .then(function (j) { if (j && j.content) cloudSha = j.content.sha; })
-      .catch(function (e) { console.warn('云端保存失败：', e); })
+      .then(function (j) {
+        if (j && j.content) {
+          cloudSha = j.content.sha;
+          var justSaved = JSON.parse(JSON.stringify(saved));
+          // 写入成功：清掉已确认的本地改动，只留真正未确认的
+          Object.keys(dirty).forEach(function (k) { if (dirty[k] === justSaved[k]) delete dirty[k]; });
+          var el = document.getElementById('syncInfo');
+          if (el) { el.textContent = '共享进度 · 上次同步 ' + new Date().toLocaleTimeString(); el.style.color = '#90a4ae'; }
+        }
+      })
+      .catch(function (e) {
+        console.warn('云端保存失败：', e);
+        var el = document.getElementById('syncInfo');
+        if (el) { el.textContent = '⚠ 本机改动暂未同步上云（稍后自动重试）'; el.style.color = '#c62828'; }
+      })
       .then(function () { saving = false; if (pending) { pending = false; pushCloud(); } });
   }
 
@@ -787,19 +812,39 @@
         cloudSha = j.sha;
         var remote = {};
         try { remote = JSON.parse(b64dec(j.content)) || {}; } catch (e) {}
-        // 合并：云端已有的项保留，本地新改动覆盖对应项
-        Object.keys(saved).forEach(function (k) { remote[k] = saved[k]; });
+        // 合并：云端打底，本地未确认改动（dirty）覆盖对应项
+        Object.keys(dirty).forEach(function (k) {
+          if (dirty[k]) remote[k] = dirty[k]; else delete remote[k];
+        });
         saved = remote;
+        saveLocal(); refreshAll();
         return fetch(API, { method: 'PUT', headers: Object.assign({ 'Content-Type': 'application/json' }, GH), body: JSON.stringify({ message: 'merge progress', content: b64enc(JSON.stringify(saved)), sha: cloudSha, branch: CFG.branch }) });
       })
       .then(function (r) { return r.json(); })
-      .then(function (j) { if (j && j.content) cloudSha = j.content.sha; })
+      .then(function (j) {
+        if (j && j.content) {
+          cloudSha = j.content.sha;
+          var justSaved = JSON.parse(JSON.stringify(saved));
+          Object.keys(dirty).forEach(function (k) { if (dirty[k] === justSaved[k]) delete dirty[k]; });
+        }
+      })
       .catch(function (e) { console.warn('冲突合并失败：', e); });
   }
 
   loadCloud();
-  setInterval(loadCloud, 30000);   // 每 30 秒同步一次
+  var syncTimer = setInterval(loadCloud, 30000);   // 每 30 秒同步一次（后台会暂停，配合 visibilitychange 补偿）
   document.addEventListener('visibilitychange', function () { if (!document.hidden) loadCloud(); });  // 切回页面立即同步（解决手机后台节流）
+  window.addEventListener('online', function () { loadCloud(); });   // 网络恢复立即同步
+  // 兜底：如果一直没连上云端（cloudReady=false），每 30 秒尝试把本地改动推上去
+  setInterval(function () {
+    if (!cloudReady && Object.keys(dirty).length) pushCloud();
+  }, 30000);
+  // cloudReady 变 true 后，立刻把积压的本地改动补推一次
+  var _origLoad = loadCloud;
+  var pushedAfterReady = false;
+  setInterval(function () {
+    if (cloudReady && !pushedAfterReady && Object.keys(dirty).length) { pushedAfterReady = true; pushCloud(); }
+  }, 5000);
 
   menu.querySelectorAll('button').forEach(function (mb) {
     mb.addEventListener('click', function (e) {
@@ -807,7 +852,8 @@
       if (!activeBtn) return;
       var st = mb.getAttribute('data-st');
       apply(activeBtn, st);
-      if (st) saved[activeBtn.name] = st; else delete saved[activeBtn.name];
+      if (st) { saved[activeBtn.name] = st; dirty[activeBtn.name] = st; }
+      else { delete saved[activeBtn.name]; dirty[activeBtn.name] = ''; }   // '' 表示删项
       saveLocal();
       pushCloud();
       menu.style.display = 'none';
